@@ -2,6 +2,10 @@
 
 Guide to run the bot 24/7 on an old Android phone using Termux.
 
+The bot uses the **WhatsApp Cloud API** (official Meta API), so there's no QR
+scanning or Baileys sessions. You just need API credentials from Meta and a
+publicly reachable webhook URL.
+
 Based on: https://dev.to/quave/hosting-web-app-on-your-old-android-phone-54bg
 
 ---
@@ -61,25 +65,97 @@ cd sesamo/whatsapp-bot
 pnpm install
 ```
 
-Create the `.env` file:
+### Configure environment variables
 
 ```bash
 cp .env.template .env
 nano .env
-# Fill in ADMIN_PHONE, NEQUI_NUMBER, etc.
 ```
 
-### First run — link WhatsApp
+Fill in the following:
+
+- **`WA_PHONE_NUMBER_ID`** — from Meta Dashboard > WhatsApp > API Setup
+- **`WA_ACCESS_TOKEN`** — permanent token from Meta Business Settings > System Users
+- **`WA_VERIFY_TOKEN`** — any string you choose (must match your Meta webhook config)
+- **`WA_APP_SECRET`** — from Meta Dashboard > App Settings > Basic (optional)
+- **`ADMIN_PHONE`** — admin phone number (country code + number, no +)
+- **`NEQUI_NUMBER`** — Nequi number shown to customers for payment
+
+### Set up Cloudflare Tunnel for webhook
+
+The WhatsApp Cloud API sends messages to your bot via a webhook. The bot runs
+an HTTP server (default port 3000) that needs a publicly reachable HTTPS URL.
+
+**Cloudflare Tunnel** is the easiest way to expose a local server without port
+forwarding or a public IP.
+
+1. Install `cloudflared`:
+
+   ```bash
+   # On Termux (aarch64):
+   pkg install wget
+   wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64
+   chmod +x cloudflared-linux-arm64
+   mv cloudflared-linux-arm64 $PREFIX/bin/cloudflared
+   ```
+
+2. Authenticate (one-time):
+
+   ```bash
+   cloudflared tunnel login
+   ```
+
+3. Create a named tunnel:
+
+   ```bash
+   cloudflared tunnel create sesamo-bot
+   ```
+
+4. Configure the tunnel (create `~/.cloudflared/config.yml`):
+
+   ```yaml
+   tunnel: sesamo-bot
+   credentials-file: /data/data/com.termux/files/home/.cloudflared/<TUNNEL_ID>.json
+
+   ingress:
+     - hostname: bot.yourdomain.com
+       service: http://localhost:3000
+     - service: http_status:404
+   ```
+
+5. Add a DNS record (or use a quick tunnel for testing):
+
+   ```bash
+   # Named tunnel with DNS:
+   cloudflared tunnel route dns sesamo-bot bot.yourdomain.com
+
+   # OR quick tunnel for testing (generates a random URL):
+   cloudflared tunnel --url http://localhost:3000
+   ```
+
+6. Run the tunnel:
+
+   ```bash
+   cloudflared tunnel run sesamo-bot
+   ```
+
+### Configure the Meta webhook
+
+1. Go to **Meta Dashboard > WhatsApp > Configuration**
+2. Set the **Callback URL** to your tunnel URL + `/webhook`
+   (e.g., `https://bot.yourdomain.com/webhook`)
+3. Set the **Verify Token** to the same value as `WA_VERIFY_TOKEN` in your `.env`
+4. Subscribe to the **messages** webhook field
+
+### First run — verify everything works
 
 ```bash
 pnpm start
 ```
 
-A QR code will appear in the terminal. Scan it with WhatsApp:
-**Settings → Linked Devices → Link a Device**.
-
-Once connected, press `Ctrl+C` to stop. The session is saved in
-`data/auth_info_baileys/` — future starts won't need the QR again.
+You should see `Server listening on port 3000`. The webhook is ready to receive
+messages — send a message to your WhatsApp Business number from any phone to
+test.
 
 ---
 
@@ -159,6 +235,16 @@ Create a start script at `~/start-bot.sh`:
 termux-wake-lock
 
 cd ~/sesamo/whatsapp-bot
+
+# Start Cloudflare Tunnel in the background
+cloudflared tunnel run sesamo-bot &
+TUNNEL_PID=$!
+
+cleanup() {
+    kill $TUNNEL_PID 2>/dev/null
+    wait $TUNNEL_PID 2>/dev/null
+}
+trap cleanup EXIT
 
 while true; do
     echo "[$(date)] Starting Sésamo bot..."
@@ -298,12 +384,13 @@ free -m
 
 - [ ] Termux + Termux:Boot installed from F-Droid
 - [ ] Node.js, pnpm, git, tmux, cronie installed in Termux
-- [ ] Bot cloned, dependencies installed, `.env` configured
-- [ ] WhatsApp linked (QR scanned)
+- [ ] Bot cloned, dependencies installed, `.env` configured with Cloud API credentials
+- [ ] Cloudflare Tunnel set up and pointing to `localhost:3000`
+- [ ] Meta webhook configured (callback URL + verify token + messages subscription)
 - [ ] `termux-wake-lock` acquired
 - [ ] Termux excluded from battery optimization
 - [ ] Termux locked in recents
-- [ ] `~/start-bot.sh` created with restart loop
+- [ ] `~/start-bot.sh` created with restart loop + tunnel
 - [ ] Bot running inside tmux session
 - [ ] `~/.termux/boot/start-bot.sh` for auto-start on reboot
 - [ ] Cron watchdog running every 5 minutes
