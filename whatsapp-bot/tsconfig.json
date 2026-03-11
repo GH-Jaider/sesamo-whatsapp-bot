@@ -43,5 +43,14 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
+  },
+  // ts-node runtime overrides: use commonjs module resolution so that
+  // tsconfig-paths can resolve @/* imports with .js extensions correctly.
+  "ts-node": {
+    "compilerOptions": {
+      "module": "commonjs",
+      "moduleResolution": "node",
+      "esModuleInterop": true
+    }
   }
 }
