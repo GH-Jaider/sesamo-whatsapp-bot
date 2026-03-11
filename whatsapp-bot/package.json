@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "ts-node -r tsconfig-paths/register src/index.ts",
-    "dev": "ts-node -r tsconfig-paths/register src/index.ts",
+    "start": "node -r ts-node/register -r tsconfig-paths/register src/index.ts",
+    "dev": "node -r ts-node/register -r tsconfig-paths/register src/index.ts",
     "test": "echo \"Error: no test specified\" && exit 1",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write \"src/**/*.ts\""
