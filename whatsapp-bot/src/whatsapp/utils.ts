@@ -13,33 +13,23 @@ export const sendListMessage = async (
   jid: string,
   title: string,
   text: string,
-  buttonText: string,
+  _buttonText: string,
   sections: { title: string; rows: { title: string; rowId: string; description?: string }[] }[],
 ) => {
-  // Try sending native list, but fallback to text if unsupported or failing (Baileys issue with multi-device lists)
-  try {
-    const listMessage = {
-      text,
-      title,
-      buttonText,
-      sections,
-      viewOnce: true,
-    };
-    await sock.sendMessage(jid, listMessage as any); // cast for dynamic types
-  } catch (error) {
-    console.warn('List message failed, falling back to text format', error);
-    let fallbackText = `*${title}*\n${text}\n\n`;
-    sections.forEach((sec) => {
-      fallbackText += `*${sec.title}*\n`;
-      sec.rows.forEach((row) => {
-        fallbackText += `- ${row.title} (${row.rowId})\n`;
-        if (row.description) fallbackText += `  ${row.description}\n`;
-      });
+  // Native list messages don't work on regular WhatsApp accounts (only Business API).
+  // Always use text-based format with numbered options.
+  let fallbackText = `*${title}*\n${text}\n\n`;
+  sections.forEach((sec) => {
+    fallbackText += `*${sec.title}*\n`;
+    sec.rows.forEach((row) => {
+      fallbackText += `*${row.rowId}.* ${row.title}`;
+      if (row.description) fallbackText += ` - ${row.description}`;
       fallbackText += `\n`;
     });
-    fallbackText += `Responde con el numero de la opcion que deseas.`;
-    await sock.sendMessage(jid, { text: fallbackText });
-  }
+    fallbackText += `\n`;
+  });
+  fallbackText += `Responde con el *número* de la opción que deseas.`;
+  await sock.sendMessage(jid, { text: fallbackText });
 };
 
 /** Format price in Colombian pesos: 20000 -> "$20.000" */
