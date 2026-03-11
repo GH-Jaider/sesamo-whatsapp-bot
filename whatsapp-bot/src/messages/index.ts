@@ -1,4 +1,4 @@
-import type { CartItem } from '@/types';
+import type { CartItem, DeliveryMode } from '@/types';
 
 /** Format price in Colombian pesos: 20000 -> "$20.000" */
 export function formatPrice(price: number): string {
@@ -11,7 +11,7 @@ export function formatPrice(price: number): string {
 
 export function welcomeMessage(): string {
   return (
-    `*Bienvenido a Finca Sésamo* 🌿\n` +
+    `*Bienvenido a Finca Sésamo* 🐐\n` +
     `_"No es restaurante. Es que mamá cocina rico."_\n\n` +
     `Nuestra especialidad es la trucha fresca, directo de nuestros pozos.\n` +
     `Estamos cerca del Embalse del Neusa — naturaleza, hogar y sazón de mamá.\n\n` +
@@ -21,14 +21,15 @@ export function welcomeMessage(): string {
 
 export function infoMessage(): string {
   return (
-    `*Finca Sésamo* 🌿\n` +
+    `*Finca Sésamo* 🐐\n` +
     `_Restaurante & Experiencia_\n\n` +
-    `📍 Cerca del Embalse del Neusa, Tausa\n` +
-    `🕐 Abierto fines de semana y festivos\n` +
-    `📞 Escríbenos por aquí para reservar o pedir\n\n` +
+    `Comida preparada por chef Delfi\n` +
+    `Haz tu pedido con anticipación\n` +
+    `Escríbenos por aquí para reservar o pedir\n\n` +
+    `📞 Si necesitas más información puedes llamarnos al 3143371953\n\n` +
     `Especialidad: trucha fresca de nuestros propios pozos.\n` +
     `También tenemos carnes, pollos, desayunos y lácteos de cabra artesanales.\n\n` +
-    `Escribe *hola* para hacer un pedido.`
+    `Escribe *menu* para hacer un pedido.`
   );
 }
 
@@ -50,6 +51,10 @@ export function proteinPrompt(): string {
 
 export function addonPrompt(): string {
   return `¿Te gustaría agregar algo a tu desayuno?`;
+}
+
+export function beveragePrompt(): string {
+  return `Tu desayuno incluye una bebida caliente.\n¿Qué prefieres?`;
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +97,49 @@ export function itemAddedToCart(itemName: string, quantity: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// Delivery Mode & Scheduling
+// ---------------------------------------------------------------------------
+
+export function deliveryModePrompt(): string {
+  return `¿Cómo quieres recibir tu pedido?`;
+}
+
+export function orderTimePrompt(): string {
+  return (
+    `¿Para qué hora necesitas el pedido?\n\n` +
+    `Escribe la hora (ej. "1:30 pm", "a las 2", "en una hora") o toca el botón si lo quieres lo antes posible.`
+  );
+}
+
+export function deliveryModeLabel(mode: DeliveryMode): string {
+  return mode === 'dine_in' ? 'Comer en Sésamo' : 'Llevar al glamping';
+}
+
+/** Compact order summary for template parameter (fits in ~500 chars) */
+export function orderSummaryCompact(
+  items: CartItem[],
+  deliveryMode: DeliveryMode,
+  scheduledTime: string,
+  notes: string,
+): string {
+  const lines = items.map((item) => {
+    const optionsStr =
+      item.options.length > 0 ? ` (${item.options.map((o) => o.name).join(', ')})` : '';
+    const lineTotal = (item.price + item.options.reduce((s, o) => s + o.price, 0)) * item.quantity;
+    return `${item.quantity}x ${item.name}${optionsStr} ${formatPrice(lineTotal)}`;
+  });
+  const parts = [
+    ...lines,
+    `Modalidad: ${deliveryModeLabel(deliveryMode)}`,
+    `Hora: ${scheduledTime || 'Lo antes posible'}`,
+  ];
+  if (notes) {
+    parts.push(`Notas: ${notes}`);
+  }
+  return parts.join(' | ');
+}
+
+// ---------------------------------------------------------------------------
 // Notes & Payment
 // ---------------------------------------------------------------------------
 
@@ -105,6 +153,8 @@ export function orderReceipt(
   total: number,
   advance: number,
   nequiNumber: string,
+  deliveryMode: DeliveryMode,
+  scheduledTime: string,
 ): string {
   let text = `*Resumen de tu pedido:*\n\n`;
   for (const item of items) {
@@ -113,7 +163,9 @@ export function orderReceipt(
     const lineTotal = (item.price + item.options.reduce((s, o) => s + o.price, 0)) * item.quantity;
     text += `• ${item.quantity}x ${item.name}${optionsStr} — ${formatPrice(lineTotal)}\n`;
   }
-  text += `\n*Notas:* ${notes || 'Ninguna'}\n`;
+  text += `\n*Modalidad:* ${deliveryModeLabel(deliveryMode)}\n`;
+  text += `*Hora:* ${scheduledTime || 'Lo antes posible'}\n`;
+  text += `*Notas:* ${notes || 'Ninguna'}\n`;
   text += `*Total:* ${formatPrice(total)}\n`;
   text += `*Anticipo (50%):* ${formatPrice(advance)}\n\n`;
   text += `Transfiere el anticipo por Nequi al *${nequiNumber}* y envía la captura de pantalla por aquí para confirmar tu pedido.`;
@@ -164,12 +216,13 @@ export function cancellationConfirm(): string {
 
 export function helpMessage(): string {
   return (
-    `*Ayuda — Finca Sésamo* 🌿\n\n` +
+    `*Ayuda — Finca Sésamo* 🐐\n\n` +
     `Comandos disponibles:\n` +
     `• *hola* o *menu* — Ver el menú y hacer un pedido\n` +
     `• *cancelar* — Cancelar tu pedido actual\n` +
     `• *ayuda* — Ver este mensaje\n\n` +
-    `Para pedir, solo elige las opciones que te vamos mostrando. ¡Es fácil!`
+    `Para pedir, solo elige las opciones que te vamos mostrando. ¡Es fácil!\n\n` +
+    `Si necesitas asistencia, contáctanos al 3143371953.`
   );
 }
 
@@ -200,9 +253,13 @@ export function adminNewOrder(
   notes: string,
   total: number,
   advance: number,
+  deliveryMode: DeliveryMode,
+  scheduledTime: string,
 ): string {
   let text = `*Nuevo Pedido #${orderId}*\n\n`;
-  text += `*Teléfono:* ${phone}\n\n`;
+  text += `*Teléfono:* ${phone}\n`;
+  text += `*Modalidad:* ${deliveryModeLabel(deliveryMode)}\n`;
+  text += `*Hora:* ${scheduledTime || 'Lo antes posible'}\n\n`;
   for (const item of items) {
     const optionsStr =
       item.options.length > 0 ? ` (${item.options.map((o) => o.name).join(', ')})` : '';
@@ -212,7 +269,7 @@ export function adminNewOrder(
   text += `\n*Notas:* ${notes || 'Ninguna'}\n`;
   text += `*Total:* ${formatPrice(total)}\n`;
   text += `*Anticipo (50%):* ${formatPrice(advance)}\n\n`;
-  text += `Responde *SÍ ${orderId}* para aprobar o *NO ${orderId}* para rechazar.`;
+  text += `Responde cualquier mensaje para ver el comprobante de pago.`;
   return text;
 }
 
@@ -238,6 +295,10 @@ export function adminPendingOrderLine(
 
 export function adminOrderApproved(orderId: number): string {
   return `Pedido #${orderId} APROBADO. ✅`;
+}
+
+export function adminVoucherCaption(orderId: number): string {
+  return `Comprobante de pago — Pedido #${orderId}`;
 }
 
 export function adminOrderRejected(orderId: number): string {

@@ -149,9 +149,29 @@ export const initDb = async () => {
       status TEXT NOT NULL,
       notes TEXT,
       advance_paid INTEGER NOT NULL,
+      delivery_mode TEXT NOT NULL DEFAULT 'dine_in',
+      scheduled_time TEXT,
+      voucher_path TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // Migrate existing orders table: add columns if missing
+  try {
+    db.run(`ALTER TABLE orders ADD COLUMN delivery_mode TEXT NOT NULL DEFAULT 'dine_in'`);
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.run(`ALTER TABLE orders ADD COLUMN scheduled_time TEXT`);
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.run(`ALTER TABLE orders ADD COLUMN voucher_path TEXT`);
+  } catch {
+    // Column already exists
+  }
 
   // --- Order Items (denormalized line items) ---
   db.run(`
@@ -230,8 +250,8 @@ const seedDb = () => {
     'INSERT INTO menu_items (category_id, name, description, price, available, display_order) VALUES (?, ?, ?, ?, ?, ?)',
     [
       1,
-      'Desayuno Tradicional Sésamo',
-      'Arepa artesanal, huevos revueltos y bebida caliente (chocolate o café)',
+      'Tradicional Sésamo',
+      'Arepa, huevos revueltos y bebida caliente (chocolate o café)',
       18000,
       1,
       1,
@@ -252,13 +272,14 @@ const seedDb = () => {
   );
 
   // Truchas (cat 3)
+  // Names kept <=24 chars for WhatsApp row titles
   const truchas = [
     { name: 'A la plancha', price: 40000 },
     { name: 'A la plancha gratinada', price: 42000 },
     { name: 'Al ajillo gratinada', price: 44000 },
     { name: 'A la mandarina gratinada', price: 47000 },
     { name: 'Al pimentón gratinada', price: 47000 },
-    { name: 'En salsa de ciruela gratinada', price: 47000 },
+    { name: 'Salsa ciruela gratinada', price: 47000 },
     { name: 'Con champiñones', price: 48000 },
     { name: 'Con camarón y palmitos', price: 50000 },
     { name: 'Marinera Sésamo', price: 52000 },
@@ -271,20 +292,45 @@ const seedDb = () => {
   });
 
   // Carnes y Pollos (cat 4)
+  // Names kept <=24 chars for WhatsApp row titles; description carries full detail
   const carnes = [
-    { name: 'Pechuga a la plancha', price: 40000 },
-    { name: 'Lomo de cerdo a la plancha', price: 40000 },
-    { name: 'Pechuga en salsa ciruela', price: 43000 },
-    { name: 'Lomo con champiñones', price: 43000 },
-    { name: 'Churrasco a la parrilla', price: 45000 },
-    { name: 'Pechuga con champiñones', price: 45000 },
-    { name: 'Churrasco gratinado', price: 47000 },
-    { name: 'Churrasco con champiñones', price: 50000 },
+    { name: 'Pechuga a la plancha', price: 40000, desc: 'Patacón, yuca frita, arroz y ensalada' },
+    {
+      name: 'Lomo cerdo a la plancha',
+      price: 40000,
+      desc: 'Patacón, yuca frita, arroz y ensalada',
+    },
+    {
+      name: 'Pechuga salsa ciruela',
+      price: 43000,
+      desc: 'Gratinada — patacón, yuca frita, arroz y ensalada',
+    },
+    {
+      name: 'Lomo cerdo c/champiñones',
+      price: 43000,
+      desc: 'Gratinado — patacón, yuca frita, arroz y ensalada',
+    },
+    {
+      name: 'Churrasco a la parrilla',
+      price: 45000,
+      desc: 'Patacón, yuca frita, arroz y ensalada',
+    },
+    {
+      name: 'Pechuga c/champiñones',
+      price: 45000,
+      desc: 'Gratinada — patacón, yuca frita, arroz y ensalada',
+    },
+    { name: 'Churrasco gratinado', price: 47000, desc: 'Patacón, yuca frita, arroz y ensalada' },
+    {
+      name: 'Churrasco c/champiñones',
+      price: 50000,
+      desc: 'Gratinado — patacón, yuca frita, arroz y ensalada',
+    },
   ];
   carnes.forEach((c, i) => {
     dbRun(
       'INSERT INTO menu_items (category_id, name, description, price, available, display_order) VALUES (?, ?, ?, ?, ?, ?)',
-      [4, c.name, 'Patacón, yuca frita, arroz y ensalada', c.price, 1, i + 1],
+      [4, c.name, c.desc, c.price, 1, i + 1],
     );
   });
 
@@ -325,9 +371,9 @@ const seedDb = () => {
     );
   });
 
-  // Desayuno add-ons (menu_item_id = 1, the desayuno)
+  // Desayuno options (menu_item_id for the desayuno)
   const desayunoId = dbGet<{ id: number }>(
-    "SELECT id FROM menu_items WHERE name = 'Desayuno Tradicional Sésamo' AND category_id = 1",
+    "SELECT id FROM menu_items WHERE name = 'Tradicional Sésamo' AND category_id = 1",
   )!.id;
 
   dbRun(
@@ -337,5 +383,15 @@ const seedDb = () => {
   dbRun(
     'INSERT INTO item_options (menu_item_id, option_group, name, price, display_order) VALUES (?, ?, ?, ?, ?)',
     [desayunoId, 'adicional', 'Changua', 12000, 2],
+  );
+
+  // Desayuno beverage choice (included in price)
+  dbRun(
+    'INSERT INTO item_options (menu_item_id, option_group, name, price, display_order) VALUES (?, ?, ?, ?, ?)',
+    [desayunoId, 'bebida', 'Chocolate', 0, 1],
+  );
+  dbRun(
+    'INSERT INTO item_options (menu_item_id, option_group, name, price, display_order) VALUES (?, ?, ?, ?, ?)',
+    [desayunoId, 'bebida', 'Café', 0, 2],
   );
 };

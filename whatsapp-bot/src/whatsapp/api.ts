@@ -36,6 +36,10 @@ function messagesUrl(): string {
 // ---------------------------------------------------------------------------
 
 async function callGraphApi(body: Record<string, unknown> | object): Promise<void> {
+  const payload = body as Record<string, unknown>;
+  const to = payload.to ?? '?';
+  const type = payload.type ?? '?';
+
   const res = await fetch(messagesUrl(), {
     method: 'POST',
     headers: {
@@ -47,13 +51,63 @@ async function callGraphApi(body: Record<string, unknown> | object): Promise<voi
 
   if (!res.ok) {
     const text = await res.text();
-    console.error(`[Graph API] ${res.status} ${res.statusText}: ${text}`);
+    console.error(
+      `[Graph API] SEND FAILED to=${to} type=${type} ${res.status} ${res.statusText}: ${text}`,
+    );
+  } else {
+    console.log(`[Graph API] sent to=${to} type=${type} status=${res.status}`);
   }
 }
 
 // ---------------------------------------------------------------------------
 // Send functions
 // ---------------------------------------------------------------------------
+
+export async function sendTemplate(
+  phone: string,
+  templateName: string,
+  languageCode: string,
+  parameters: string[],
+): Promise<boolean> {
+  console.log(
+    `[sendTemplate] to=${phone} template=${templateName} params=${JSON.stringify(parameters)}`,
+  );
+  const body = {
+    messaging_product: 'whatsapp',
+    to: phone,
+    type: 'template',
+    template: {
+      name: templateName,
+      language: { code: languageCode },
+      components:
+        parameters.length > 0
+          ? [
+              {
+                type: 'body',
+                parameters: parameters.map((p) => ({ type: 'text', text: p })),
+              },
+            ]
+          : [],
+    },
+  };
+
+  const res = await fetch(messagesUrl(), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${getAccessToken()}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.error(`[sendTemplate] FAILED: ${res.status} ${text}`);
+    return false;
+  }
+  console.log(`[sendTemplate] sent to=${phone} status=${res.status}`);
+  return true;
+}
 
 export async function sendText(phone: string, text: string): Promise<void> {
   console.log(`[sendText] to=${phone} text=${text.slice(0, 50)}...`);
@@ -142,6 +196,8 @@ export async function sendButtons(
 }
 
 export async function sendImage(phone: string, imagePath: string, caption?: string): Promise<void> {
+  console.log(`[sendImage] to=${phone} file=${imagePath}`);
+
   // Upload media first, then send the media ID
   const uploadUrl = `https://graph.facebook.com/${GRAPH_API_VERSION}/${getPhoneNumberId()}/media`;
 
@@ -165,16 +221,26 @@ export async function sendImage(phone: string, imagePath: string, caption?: stri
 
   if (!uploadRes.ok) {
     const text = await uploadRes.text();
-    console.error(`[Graph API] media upload failed: ${uploadRes.status} ${text}`);
+    console.error(`[sendImage] media upload failed: ${uploadRes.status} ${text}`);
+    // Fallback: send caption as text if image upload fails
+    if (caption) {
+      console.log('[sendImage] falling back to text-only message');
+      await sendText(phone, caption);
+    }
     return;
   }
 
   const uploadData = (await uploadRes.json()) as { id?: string };
   const mediaId = uploadData.id;
   if (!mediaId) {
-    console.error('[Graph API] media upload returned no id');
+    console.error('[sendImage] media upload returned no id');
+    if (caption) {
+      await sendText(phone, caption);
+    }
     return;
   }
+
+  console.log(`[sendImage] media uploaded, id=${mediaId}`);
 
   const msg: Record<string, unknown> = {
     messaging_product: 'whatsapp',

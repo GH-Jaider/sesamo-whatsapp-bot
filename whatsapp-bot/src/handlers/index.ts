@@ -1,5 +1,12 @@
 import { getUserState, updateUserState, clearUserState } from '@/state/index';
-import { sendText, sendList, sendButtons, sendImage, downloadMedia } from '@/whatsapp/api';
+import {
+  sendText,
+  sendList,
+  sendButtons,
+  sendImage,
+  sendTemplate,
+  downloadMedia,
+} from '@/whatsapp/api';
 import { dbAll, dbGet, dbRun } from '@/db/index';
 import { normalizeInput, parseCommand, parseQuantity } from '@/input/index';
 import * as msg from '@/messages/index';
@@ -11,7 +18,9 @@ import type {
   CartItem,
   PendingItem,
   Order,
+  DeliveryMode,
 } from '@/types/index';
+import { existsSync } from 'fs';
 import path from 'path';
 
 // ---------------------------------------------------------------------------
@@ -64,13 +73,42 @@ export const handleMessage = async (phone: string, userMessage: string, mediaId?
       }
     }
 
-    // Admin order approval/rejection: "SI N" or "NO N"
+    // Admin order approval/rejection: "SI N", "NO N", or button IDs "si_N", "no_N"
     if (phone === process.env.ADMIN_PHONE) {
-      const match = userMessage.match(/^(S[IÍ]|NO)\s+(\d+)$/i);
+      const match =
+        userMessage.match(/^(S[IÍ]|NO)\s+(\d+)$/i) || userMessage.match(/^(si|no)_(\d+)$/i);
       if (match?.[1] && match[2]) {
         const isApproved = match[1]!.toUpperCase().startsWith('S');
         const orderId = match[2]!;
         return processOrderValidation(phone, orderId, isApproved);
+      }
+
+      // Admin replied to the template notification — send the voucher image
+      // This triggers when the admin sends ANY message that isn't a recognized command
+      // and they don't have an active admin state (ADMIN_MENU, ADMIN_MANAGE_MENU, etc.)
+      if (
+        !state ||
+        (state.current_step !== 'ADMIN_MENU' && state.current_step !== 'ADMIN_MANAGE_MENU')
+      ) {
+        const pendingOrder = dbGet<Order>(
+          "SELECT * FROM orders WHERE status = 'PENDING' AND voucher_path IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+        );
+
+        if (pendingOrder && pendingOrder.voucher_path && existsSync(pendingOrder.voucher_path)) {
+          await sendImage(
+            phone,
+            pendingOrder.voucher_path,
+            msg.adminVoucherCaption(pendingOrder.id),
+          );
+          await sendButtons(phone, `¿Aprobar pedido #${pendingOrder.id}?`, [
+            { buttonId: `si_${pendingOrder.id}`, buttonText: 'Aprobar' },
+            { buttonId: `no_${pendingOrder.id}`, buttonText: 'Rechazar' },
+          ]);
+          return;
+        }
+
+        // No pending orders with vouchers — don't intercept, let it fall through
+        // to global keywords or welcome flow
       }
     }
 
@@ -108,10 +146,16 @@ export const handleMessage = async (phone: string, userMessage: string, mediaId?
         return handleChooseProtein(phone, userMessage);
       case 'CHOOSE_ADDONS':
         return handleChooseAddons(phone, userMessage);
+      case 'CHOOSE_BEVERAGE':
+        return handleChooseBeverage(phone, userMessage);
       case 'CHOOSE_QUANTITY':
         return handleChooseQuantity(phone, userMessage);
       case 'CART_CONFIRM':
         return handleCartConfirm(phone, userMessage);
+      case 'CHOOSE_DELIVERY_MODE':
+        return handleDeliveryMode(phone, userMessage);
+      case 'CHOOSE_ORDER_TIME':
+        return handleOrderTime(phone, userMessage);
       case 'NOTES':
         return handleNotes(phone, userMessage);
       case 'WAITING_FOR_VOUCHER':
@@ -147,7 +191,7 @@ async function handleWelcome(phone: string) {
         title: 'Opciones',
         rows: [
           { title: 'Hacer un pedido', rowId: '1', description: 'Mira nuestro menú y pide' },
-          { title: 'Información', rowId: '2', description: 'Horarios, ubicación y más' },
+          { title: 'Información', rowId: '2', description: 'Horarios, contacto directo y más' },
         ],
       },
     ],
@@ -198,7 +242,13 @@ async function showCategories(phone: string) {
       return row;
     });
 
-  updateUserState(phone, 'CATEGORY_SELECT', { items: [] });
+  // Preserve existing cart items when browsing categories (e.g. "Agregar más")
+  const existingState = getUserState(phone);
+  const existingCart = existingState ? getCartData(existingState.cart_data) : { items: [] };
+  // Clear pending item if any, keep committed items
+  delete existingCart.pendingItem;
+  delete existingCart.selectedCategoryId;
+  updateUserState(phone, 'CATEGORY_SELECT', existingCart);
 
   await sendList(
     phone,
@@ -295,6 +345,7 @@ async function handleItemSelect(phone: string, text: string) {
 
   // Route based on option groups
   const hasProtein = options.some((o) => o.option_group === 'proteina');
+  const hasBeverage = options.some((o) => o.option_group === 'bebida');
   const hasAddons = options.some((o) => o.option_group === 'adicional');
 
   if (hasProtein) {
@@ -306,6 +357,17 @@ async function handleItemSelect(phone: string, text: string) {
       description: o.price > 0 ? `+${msg.formatPrice(o.price)}` : 'Incluida',
     }));
     await sendList(phone, msg.proteinPrompt(), 'Ver opciones', [{ title: 'Proteínas', rows }]);
+  } else if (hasBeverage) {
+    updateUserState(phone, 'CHOOSE_BEVERAGE', cart);
+    const beverageOptions = options.filter((o) => o.option_group === 'bebida');
+    await sendButtons(
+      phone,
+      msg.beveragePrompt(),
+      beverageOptions.map((o) => ({
+        buttonId: String(o.id),
+        buttonText: o.name.slice(0, 20),
+      })),
+    );
   } else if (hasAddons) {
     updateUserState(phone, 'CHOOSE_ADDONS', cart);
     await showAddonsPrompt(
@@ -361,29 +423,65 @@ async function handleChooseProtein(phone: string, text: string) {
   }
 }
 
-async function showAddonsPrompt(phone: string, addons: ItemOption[]) {
-  const buttons = [
-    ...addons.map((a) => ({
-      buttonId: String(a.id),
-      buttonText: `${a.name} +${msg.formatPrice(a.price)}`.slice(0, 20),
-    })),
-    { buttonId: 'skip', buttonText: 'Sin adicionales' },
-  ];
+async function handleChooseBeverage(phone: string, text: string) {
+  const parsed = parseCommand(text);
+  const normalized = normalizeInput(text);
+  const state = getUserState(phone)!;
+  const cart = getCartData(state.cart_data);
+  const menuItemId = cart.pendingItem?.menuItemId ?? 0;
 
-  // If more than 3 buttons, use list message instead
-  if (buttons.length > 3) {
-    const rows = [
-      ...addons.map((a) => ({
-        title: a.name.slice(0, 24),
-        rowId: String(a.id),
-        description: `+${msg.formatPrice(a.price)}`,
-      })),
-      { title: 'Sin adicionales', rowId: 'skip', description: 'Continuar sin adicionales' },
-    ];
-    await sendList(phone, msg.addonPrompt(), 'Ver opciones', [{ title: 'Adicionales', rows }]);
-  } else {
-    await sendButtons(phone, msg.addonPrompt(), buttons);
+  // Match by button ID (number) or by name
+  let option: ItemOption | undefined;
+  if (parsed.type === 'number' && parsed.num) {
+    option = dbGet<ItemOption>(
+      "SELECT * FROM item_options WHERE id = ? AND option_group = 'bebida'",
+      [parsed.num],
+    );
   }
+  if (!option) {
+    // Try matching by name (e.g. user typed "chocolate" or "café")
+    const beverages = dbAll<ItemOption>(
+      "SELECT * FROM item_options WHERE menu_item_id = ? AND option_group = 'bebida' ORDER BY display_order",
+      [menuItemId],
+    );
+    option = beverages.find((b) => normalizeInput(b.name) === normalized);
+  }
+
+  if (!option) {
+    await sendText(phone, msg.errorReprompt('Elige *Chocolate* o *Café*.'));
+    return;
+  }
+
+  if (cart.pendingItem) {
+    cart.pendingItem.options.push({ name: option.name, price: option.price });
+  }
+
+  // Check if the item also has add-ons
+  const addons = dbAll<ItemOption>(
+    "SELECT * FROM item_options WHERE menu_item_id = ? AND option_group = 'adicional' ORDER BY display_order",
+    [menuItemId],
+  );
+
+  if (addons.length > 0) {
+    updateUserState(phone, 'CHOOSE_ADDONS', cart);
+    await showAddonsPrompt(phone, addons);
+  } else {
+    updateUserState(phone, 'CHOOSE_QUANTITY', cart);
+    await sendQuantityPrompt(phone, cart.pendingItem?.name ?? 'ítem');
+  }
+}
+
+async function showAddonsPrompt(phone: string, addons: ItemOption[]) {
+  // Always use a list — button text (20 char limit) truncates addon names + prices
+  const rows = [
+    ...addons.map((a) => ({
+      title: a.name.slice(0, 24),
+      rowId: String(a.id),
+      description: `+${msg.formatPrice(a.price)}`,
+    })),
+    { title: 'Sin adicionales', rowId: 'skip', description: 'Continuar sin adicionales' },
+  ];
+  await sendList(phone, msg.addonPrompt(), 'Ver opciones', [{ title: 'Adicionales', rows }]);
 }
 
 async function handleChooseAddons(phone: string, text: string) {
@@ -505,8 +603,11 @@ async function handleCartConfirm(phone: string, text: string) {
   }
 
   if (isDone) {
-    updateUserState(phone, 'NOTES');
-    await sendText(phone, msg.notesPrompt());
+    updateUserState(phone, 'CHOOSE_DELIVERY_MODE');
+    await sendButtons(phone, msg.deliveryModePrompt(), [
+      { buttonId: 'dine_in', buttonText: 'Comer en Sésamo' },
+      { buttonId: 'delivery', buttonText: 'Llevar al glamping' },
+    ]);
     return;
   }
 
@@ -522,6 +623,66 @@ async function handleCartConfirm(phone: string, text: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Customer: Delivery Mode
+// ---------------------------------------------------------------------------
+
+async function handleDeliveryMode(phone: string, text: string) {
+  const normalized = normalizeInput(text);
+  const state = getUserState(phone)!;
+  const cart = getCartData(state.cart_data);
+
+  const isDineIn =
+    normalized === 'dine_in' ||
+    normalized === 'comer en sesamo' ||
+    normalized === 'comer' ||
+    normalized === '1';
+
+  const isDelivery =
+    normalized === 'delivery' ||
+    normalized === 'llevar al glamping' ||
+    normalized === 'llevar' ||
+    normalized === 'glamping' ||
+    normalized === '2';
+
+  if (isDineIn) {
+    cart.deliveryMode = 'dine_in';
+  } else if (isDelivery) {
+    cart.deliveryMode = 'delivery';
+  } else {
+    await sendButtons(phone, msg.errorReprompt('Elige una opción.'), [
+      { buttonId: 'dine_in', buttonText: 'Comer en Sésamo' },
+      { buttonId: 'delivery', buttonText: 'Llevar al glamping' },
+    ]);
+    return;
+  }
+
+  updateUserState(phone, 'CHOOSE_ORDER_TIME', cart);
+  await sendButtons(phone, msg.orderTimePrompt(), [
+    { buttonId: 'asap', buttonText: 'Lo antes posible' },
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Customer: Order Time
+// ---------------------------------------------------------------------------
+
+async function handleOrderTime(phone: string, text: string) {
+  const normalized = normalizeInput(text);
+  const state = getUserState(phone)!;
+  const cart = getCartData(state.cart_data);
+
+  if (normalized === 'asap' || normalized === 'lo antes posible' || normalized === 'ya') {
+    cart.scheduledTime = '';
+  } else {
+    // Free text time — store whatever they typed
+    cart.scheduledTime = text.trim();
+  }
+
+  updateUserState(phone, 'NOTES', cart);
+  await sendText(phone, msg.notesPrompt());
+}
+
+// ---------------------------------------------------------------------------
 // Customer: Notes
 // ---------------------------------------------------------------------------
 
@@ -534,12 +695,17 @@ async function handleNotes(phone: string, text: string) {
   const total = calcSubtotal(cart.items);
   const advance = Math.ceil(total / 2);
   const nequi = process.env.NEQUI_NUMBER || 'No configurado';
+  const deliveryMode: DeliveryMode = cart.deliveryMode ?? 'dine_in';
+  const scheduledTime = cart.scheduledTime ?? '';
 
   // Store notes in cart for later
-  (cart as any).notes = notes;
+  cart.notes = notes;
   updateUserState(phone, 'WAITING_FOR_VOUCHER', cart);
 
-  await sendText(phone, msg.orderReceipt(cart.items, notes, total, advance, nequi));
+  await sendText(
+    phone,
+    msg.orderReceipt(cart.items, notes, total, advance, nequi, deliveryMode, scheduledTime),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -564,14 +730,16 @@ async function handlePayment(phone: string, mediaId: string | undefined) {
 
   const state = getUserState(phone)!;
   const cart = getCartData(state.cart_data);
-  const notes = (cart as any).notes ?? '';
+  const notes = cart.notes ?? '';
   const total = calcSubtotal(cart.items);
   const advance = Math.ceil(total / 2);
+  const deliveryMode: DeliveryMode = cart.deliveryMode ?? 'dine_in';
+  const scheduledTime = cart.scheduledTime ?? '';
 
-  // Save order
+  // Save order (include voucher path for later retrieval when admin replies)
   const result = dbRun(
-    'INSERT INTO orders (customer_phone, total, status, notes, advance_paid) VALUES (?, ?, ?, ?, ?)',
-    [phone, total, 'PENDING', notes, advance],
+    'INSERT INTO orders (customer_phone, total, status, notes, advance_paid, delivery_mode, scheduled_time, voucher_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [phone, total, 'PENDING', notes, advance, deliveryMode, scheduledTime || null, filePath],
   );
   const orderId = result.lastInsertRowid;
 
@@ -594,11 +762,35 @@ async function handlePayment(phone: string, mediaId: string | undefined) {
   await sendText(phone, msg.voucherReceived(orderId));
   clearUserState(phone);
 
-  // Forward to admin
+  // Forward to admin via template (free-form messages don't work outside 24h window)
   const adminPhone = process.env.ADMIN_PHONE;
+  console.log(`[handlePayment] forwarding to admin=${adminPhone} orderId=${orderId}`);
   if (adminPhone) {
-    const adminText = msg.adminNewOrder(orderId, phone, cart.items, notes, total, advance);
-    await sendImage(adminPhone, filePath, adminText);
+    const summary = msg.orderSummaryCompact(cart.items, deliveryMode, scheduledTime, notes);
+    const templateSent = await sendTemplate(adminPhone, 'pedido_detalle', 'es', [
+      String(orderId),
+      phone,
+      summary,
+      msg.formatPrice(total),
+      msg.formatPrice(advance),
+    ]);
+
+    if (!templateSent) {
+      console.warn('[handlePayment] template failed, trying direct text (admin may have window)');
+      const adminText = msg.adminNewOrder(
+        orderId,
+        phone,
+        cart.items,
+        notes,
+        total,
+        advance,
+        deliveryMode,
+        scheduledTime,
+      );
+      await sendText(adminPhone, adminText);
+    }
+  } else {
+    console.warn('[handlePayment] ADMIN_PHONE not set, skipping admin notification');
   }
 }
 
@@ -627,10 +819,13 @@ async function handleAdminMenuSelection(phone: string, text: string) {
     const items = dbAll<MenuItem>('SELECT * FROM menu_items ORDER BY category_id, display_order');
 
     const rows = items.map((item) => ({
-      title: `${item.available ? '🟢' : '🔴'} ${item.name}`.slice(0, 24),
+      title: item.name.slice(0, 24),
       rowId: String(item.id),
       description:
-        `${item.available ? 'Activo' : 'Inactivo'} — ${msg.formatPrice(item.price)}`.slice(0, 72),
+        `${item.available ? '🟢 Activo' : '🔴 Inactivo'} — ${msg.formatPrice(item.price)}`.slice(
+          0,
+          72,
+        ),
     }));
 
     updateUserState(phone, 'ADMIN_MANAGE_MENU');
