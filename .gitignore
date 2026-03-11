@@ -1,0 +1,7 @@
+node_modules/
+.env
+
+# WhatsApp bot
+whatsapp-bot/data/auth_info_baileys/
+whatsapp-bot/data/downloads/
+whatsapp-bot/data/*.db
