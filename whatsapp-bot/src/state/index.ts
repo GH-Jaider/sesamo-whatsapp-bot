@@ -1,10 +1,7 @@
 import { dbGet, dbRun } from '@/db';
+import type { UserState } from '@/types';
 
-export interface UserState {
-  phone: string;
-  current_step: string;
-  cart_data: string | null; // JSON string
-}
+export type { UserState };
 
 export const getUserState = (phone: string): UserState | undefined => {
   return dbGet<UserState>('SELECT * FROM user_states WHERE phone = ?', [phone]);

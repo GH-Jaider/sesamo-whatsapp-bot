@@ -105,18 +105,42 @@ export const initDb = async () => {
     db = new SQL.Database();
   }
 
-  // Create tables
+  // --- Categories ---
   db.run(`
-    CREATE TABLE IF NOT EXISTS products (
-      id TEXT PRIMARY KEY,
+    CREATE TABLE IF NOT EXISTS categories (
+      id INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
-      description TEXT,
-      price INTEGER NOT NULL,
-      category TEXT NOT NULL,
-      available INTEGER DEFAULT 1
+      display_order INTEGER NOT NULL,
+      description TEXT
     )
   `);
 
+  // --- Menu Items ---
+  db.run(`
+    CREATE TABLE IF NOT EXISTS menu_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category_id INTEGER NOT NULL REFERENCES categories(id),
+      name TEXT NOT NULL,
+      description TEXT,
+      price INTEGER NOT NULL,
+      available INTEGER DEFAULT 1,
+      display_order INTEGER NOT NULL
+    )
+  `);
+
+  // --- Item Options (sub-options and add-ons) ---
+  db.run(`
+    CREATE TABLE IF NOT EXISTS item_options (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      menu_item_id INTEGER NOT NULL REFERENCES menu_items(id),
+      option_group TEXT NOT NULL,
+      name TEXT NOT NULL,
+      price INTEGER NOT NULL DEFAULT 0,
+      display_order INTEGER NOT NULL
+    )
+  `);
+
+  // --- Orders ---
   db.run(`
     CREATE TABLE IF NOT EXISTS orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -129,6 +153,20 @@ export const initDb = async () => {
     )
   `);
 
+  // --- Order Items (denormalized line items) ---
+  db.run(`
+    CREATE TABLE IF NOT EXISTS order_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER NOT NULL REFERENCES orders(id),
+      menu_item_id INTEGER NOT NULL,
+      item_name TEXT NOT NULL,
+      item_price INTEGER NOT NULL,
+      quantity INTEGER NOT NULL DEFAULT 1,
+      options_json TEXT
+    )
+  `);
+
+  // --- User States ---
   db.run(`
     CREATE TABLE IF NOT EXISTS user_states (
       phone TEXT PRIMARY KEY,
@@ -143,48 +181,161 @@ export const initDb = async () => {
 };
 
 const seedDb = () => {
-  const result = dbGet<{ count: number }>('SELECT count(*) as count FROM products');
+  // Only seed if categories table is empty
+  const result = dbGet<{ count: number }>('SELECT count(*) as count FROM categories');
   if (result && result.count > 0) return;
 
-  const seedProducts = [
+  // --- Categories ---
+  const categories = [
     {
-      id: '1',
-      name: 'Sésamo Classic',
-      description: 'Nuestra burger clásica con extra queso',
-      price: 20000,
-      category: 'Hamburguesas',
-      available: 1,
+      id: 1,
+      name: 'Desayunos',
+      order: 1,
+      desc: 'El Amanecer — para empezar la mañana frente al frío del Neusa',
     },
     {
-      id: '2',
-      name: 'Sésamo Doble',
-      description: 'Doble carne, doble sabor',
-      price: 25000,
-      category: 'Hamburguesas',
-      available: 1,
+      id: 2,
+      name: 'Almuerzos',
+      order: 2,
+      desc: 'Almuerzos de la Finca — el clásico almuerzo elevado con técnica de chef',
     },
     {
-      id: '3',
-      name: 'Papas Fritas',
-      description: 'Crujientes papas fritas',
-      price: 6000,
-      category: 'Acompañamientos',
-      available: 1,
+      id: 3,
+      name: 'Truchas',
+      order: 3,
+      desc: 'Nuestras Truchas — frescas, de los pozos de Sésamo',
     },
+    { id: 4, name: 'Carnes y Pollos', order: 4, desc: 'Cortes clásicos con sabor contundente' },
+    { id: 5, name: 'Bebidas', order: 5, desc: 'Jarras de limonada — el toque natural perfecto' },
     {
-      id: '4',
-      name: 'Limonada',
-      description: 'Limonada natural',
-      price: 5000,
-      category: 'Bebidas',
-      available: 1,
+      id: 6,
+      name: 'Lácteos de Cabra',
+      order: 6,
+      desc: 'Directo de nuestro rebaño, elaborados artesanalmente',
     },
   ];
 
-  for (const p of seedProducts) {
-    dbRun(
-      'INSERT INTO products (id, name, description, price, category, available) VALUES (?, ?, ?, ?, ?, ?)',
-      [p.id, p.name, p.description, p.price, p.category, p.available],
-    );
+  for (const c of categories) {
+    dbRun('INSERT INTO categories (id, name, display_order, description) VALUES (?, ?, ?, ?)', [
+      c.id,
+      c.name,
+      c.order,
+      c.desc,
+    ]);
   }
+
+  // --- Menu Items ---
+  // Desayunos (cat 1)
+  dbRun(
+    'INSERT INTO menu_items (category_id, name, description, price, available, display_order) VALUES (?, ?, ?, ?, ?, ?)',
+    [
+      1,
+      'Desayuno Tradicional Sésamo',
+      'Arepa artesanal, huevos revueltos y bebida caliente (chocolate o café)',
+      18000,
+      1,
+      1,
+    ],
+  );
+
+  // Almuerzos (cat 2)
+  dbRun(
+    'INSERT INTO menu_items (category_id, name, description, price, available, display_order) VALUES (?, ?, ?, ?, ?, ?)',
+    [
+      2,
+      'Menú de la Casa',
+      'Arroz, ensalada fresca, patacón y yuca frita. Elige tu proteína',
+      35000,
+      1,
+      1,
+    ],
+  );
+
+  // Truchas (cat 3)
+  const truchas = [
+    { name: 'A la plancha', price: 40000 },
+    { name: 'A la plancha gratinada', price: 42000 },
+    { name: 'Al ajillo gratinada', price: 44000 },
+    { name: 'A la mandarina gratinada', price: 47000 },
+    { name: 'Al pimentón gratinada', price: 47000 },
+    { name: 'En salsa de ciruela gratinada', price: 47000 },
+    { name: 'Con champiñones', price: 48000 },
+    { name: 'Con camarón y palmitos', price: 50000 },
+    { name: 'Marinera Sésamo', price: 52000 },
+  ];
+  truchas.forEach((t, i) => {
+    dbRun(
+      'INSERT INTO menu_items (category_id, name, description, price, available, display_order) VALUES (?, ?, ?, ?, ?, ?)',
+      [3, t.name, 'Patacón, yuca frita, arroz y ensalada', t.price, 1, i + 1],
+    );
+  });
+
+  // Carnes y Pollos (cat 4)
+  const carnes = [
+    { name: 'Pechuga a la plancha', price: 40000 },
+    { name: 'Lomo de cerdo a la plancha', price: 40000 },
+    { name: 'Pechuga en salsa ciruela', price: 43000 },
+    { name: 'Lomo con champiñones', price: 43000 },
+    { name: 'Churrasco a la parrilla', price: 45000 },
+    { name: 'Pechuga con champiñones', price: 45000 },
+    { name: 'Churrasco gratinado', price: 47000 },
+    { name: 'Churrasco con champiñones', price: 50000 },
+  ];
+  carnes.forEach((c, i) => {
+    dbRun(
+      'INSERT INTO menu_items (category_id, name, description, price, available, display_order) VALUES (?, ?, ?, ?, ?, ?)',
+      [4, c.name, 'Patacón, yuca frita, arroz y ensalada', c.price, 1, i + 1],
+    );
+  });
+
+  // Bebidas (cat 5)
+  const bebidas = [
+    { name: 'Limonada Natural', price: 10000 },
+    { name: 'Limonada de Yerbabuena', price: 15000 },
+    { name: 'Limonada de Menta', price: 15000 },
+  ];
+  bebidas.forEach((b, i) => {
+    dbRun(
+      'INSERT INTO menu_items (category_id, name, description, price, available, display_order) VALUES (?, ?, ?, ?, ?, ?)',
+      [5, b.name, 'Jarra de limonada', b.price, 1, i + 1],
+    );
+  });
+
+  // Lácteos de Cabra (cat 6)
+  dbRun(
+    'INSERT INTO menu_items (category_id, name, description, price, available, display_order) VALUES (?, ?, ?, ?, ?, ?)',
+    [6, 'Queso de Cabra', 'Por libra — artesanal de nuestro rebaño', 30000, 1, 1],
+  );
+  dbRun(
+    'INSERT INTO menu_items (category_id, name, description, price, available, display_order) VALUES (?, ?, ?, ?, ?, ?)',
+    [6, 'Leche de Cabra', 'Por litro — fresca y natural', 11000, 1, 2],
+  );
+
+  // --- Item Options ---
+  // Almuerzo protein choices (menu_item_id = 2, the almuerzo)
+  const almuerzoId = dbGet<{ id: number }>(
+    "SELECT id FROM menu_items WHERE name = 'Menú de la Casa' AND category_id = 2",
+  )!.id;
+
+  const proteinas = ['Pechuga de pollo', 'Pierna pernil', 'Lomo de cerdo', 'Carne de res'];
+  proteinas.forEach((p, i) => {
+    dbRun(
+      'INSERT INTO item_options (menu_item_id, option_group, name, price, display_order) VALUES (?, ?, ?, ?, ?)',
+      [almuerzoId, 'proteina', p, 0, i + 1],
+    );
+  });
+
+  // Desayuno add-ons (menu_item_id = 1, the desayuno)
+  const desayunoId = dbGet<{ id: number }>(
+    "SELECT id FROM menu_items WHERE name = 'Desayuno Tradicional Sésamo' AND category_id = 1",
+  )!.id;
+
+  dbRun(
+    'INSERT INTO item_options (menu_item_id, option_group, name, price, display_order) VALUES (?, ?, ?, ?, ?)',
+    [desayunoId, 'adicional', 'Caldo de Costilla', 14000, 1],
+  );
+  dbRun(
+    'INSERT INTO item_options (menu_item_id, option_group, name, price, display_order) VALUES (?, ?, ?, ?, ?)',
+    [desayunoId, 'adicional', 'Changua', 12000, 2],
+  );
 };
