@@ -1,22 +1,91 @@
-import Database, { Database as DatabaseType } from 'better-sqlite3';
+import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
 import path from 'path';
 import fs from 'fs';
 
-let db: DatabaseType | null = null;
+let db: SqlJsDatabase | null = null;
+let dbPath: string;
 
 /**
- * Returns the singleton DB instance.
+ * Wrapper: run a query that modifies data (INSERT, UPDATE, DELETE).
+ * Automatically saves to disk after each write.
+ * Returns { lastInsertRowid }.
+ */
+export function dbRun(sql: string, params: any[] = []): { lastInsertRowid: number } {
+  const d = getDb();
+  d.run(sql, params);
+  const result = d.exec('SELECT last_insert_rowid() as id');
+  const lastId = (result[0]?.values[0]?.[0] as number) ?? 0;
+  saveDb();
+  return { lastInsertRowid: lastId };
+}
+
+/**
+ * Wrapper: get a single row. Returns the row as an object, or undefined.
+ */
+export function dbGet<T = Record<string, any>>(sql: string, params: any[] = []): T | undefined {
+  const d = getDb();
+  const stmt = d.prepare(sql);
+  stmt.bind(params);
+
+  if (stmt.step()) {
+    const columns = stmt.getColumnNames();
+    const values = stmt.get();
+    const row: Record<string, any> = {};
+    columns.forEach((col, i) => {
+      row[col] = values[i];
+    });
+    stmt.free();
+    return row as T;
+  }
+
+  stmt.free();
+  return undefined;
+}
+
+/**
+ * Wrapper: get all rows. Returns an array of objects.
+ */
+export function dbAll<T = Record<string, any>>(sql: string, params: any[] = []): T[] {
+  const d = getDb();
+  const stmt = d.prepare(sql);
+  stmt.bind(params);
+
+  const rows: T[] = [];
+  const columns = stmt.getColumnNames();
+
+  while (stmt.step()) {
+    const values = stmt.get();
+    const row: Record<string, any> = {};
+    columns.forEach((col, i) => {
+      row[col] = values[i];
+    });
+    rows.push(row as T);
+  }
+
+  stmt.free();
+  return rows;
+}
+
+/**
+ * Returns the singleton DB instance (raw sql.js Database).
  * Must be called after initDb().
  */
-export function getDb(): DatabaseType {
+export function getDb(): SqlJsDatabase {
   if (!db) {
     throw new Error('Database not initialized. Call initDb() first.');
   }
   return db;
 }
 
-export const initDb = () => {
-  if (db) return; // Already initialized
+/** Save the in-memory database to disk. */
+function saveDb() {
+  if (!db) return;
+  const data = db.export();
+  fs.writeFileSync(dbPath, Buffer.from(data));
+}
+
+export const initDb = async () => {
+  if (db) return;
 
   // Ensure the data directory exists
   const dataDir = path.join(process.cwd(), 'data');
@@ -24,14 +93,20 @@ export const initDb = () => {
     fs.mkdirSync(dataDir, { recursive: true });
   }
 
-  db = new Database(path.join(dataDir, 'sesamo.db'), {
-    verbose: process.env.NODE_ENV === 'development' ? console.log : undefined,
-  });
+  dbPath = path.join(dataDir, 'sesamo.db');
 
-  db.pragma('journal_mode = WAL'); // Better concurrency
+  const SQL = await initSqlJs();
 
-  // Create products table
-  db.exec(`
+  // Load existing database file if it exists
+  if (fs.existsSync(dbPath)) {
+    const fileBuffer = fs.readFileSync(dbPath);
+    db = new SQL.Database(fileBuffer);
+  } else {
+    db = new SQL.Database();
+  }
+
+  // Create tables
+  db.run(`
     CREATE TABLE IF NOT EXISTS products (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -42,8 +117,7 @@ export const initDb = () => {
     )
   `);
 
-  // Create orders table
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       customer_phone TEXT NOT NULL,
@@ -55,8 +129,7 @@ export const initDb = () => {
     )
   `);
 
-  // Create user_states table
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS user_states (
       phone TEXT PRIMARY KEY,
       current_step TEXT NOT NULL,
@@ -65,17 +138,13 @@ export const initDb = () => {
     )
   `);
 
-  seedDb(db);
+  seedDb();
+  saveDb();
 };
 
-const seedDb = (db: DatabaseType) => {
-  // Check if we already have products
-  const count = db.prepare('SELECT count(*) as count FROM products').get() as { count: number };
-  if (count.count > 0) return;
-
-  const insert = db.prepare(
-    'INSERT INTO products (id, name, description, price, category, available) VALUES (?, ?, ?, ?, ?, ?)',
-  );
+const seedDb = () => {
+  const result = dbGet<{ count: number }>('SELECT count(*) as count FROM products');
+  if (result && result.count > 0) return;
 
   const seedProducts = [
     {
@@ -112,9 +181,10 @@ const seedDb = (db: DatabaseType) => {
     },
   ];
 
-  db.transaction(() => {
-    for (const p of seedProducts) {
-      insert.run(p.id, p.name, p.description, p.price, p.category, p.available);
-    }
-  })();
+  for (const p of seedProducts) {
+    dbRun(
+      'INSERT INTO products (id, name, description, price, category, available) VALUES (?, ?, ?, ?, ?, ?)',
+      [p.id, p.name, p.description, p.price, p.category, p.available],
+    );
+  }
 };

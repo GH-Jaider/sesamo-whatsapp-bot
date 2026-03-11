@@ -1,4 +1,4 @@
-import { getDb } from '@/db';
+import { dbGet, dbRun } from '@/db';
 
 export interface UserState {
   phone: string;
@@ -7,9 +7,7 @@ export interface UserState {
 }
 
 export const getUserState = (phone: string): UserState | undefined => {
-  return getDb().prepare('SELECT * FROM user_states WHERE phone = ?').get(phone) as
-    | UserState
-    | undefined;
+  return dbGet<UserState>('SELECT * FROM user_states WHERE phone = ?', [phone]);
 };
 
 export const updateUserState = (phone: string, step: string, cartData?: any) => {
@@ -25,18 +23,19 @@ export const updateUserState = (phone: string, step: string, cartData?: any) => 
   }
 
   if (existing) {
-    getDb()
-      .prepare(
-        'UPDATE user_states SET current_step = ?, cart_data = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?',
-      )
-      .run(step, serializedCart, phone);
+    dbRun(
+      'UPDATE user_states SET current_step = ?, cart_data = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?',
+      [step, serializedCart, phone],
+    );
   } else {
-    getDb()
-      .prepare('INSERT INTO user_states (phone, current_step, cart_data) VALUES (?, ?, ?)')
-      .run(phone, step, serializedCart);
+    dbRun('INSERT INTO user_states (phone, current_step, cart_data) VALUES (?, ?, ?)', [
+      phone,
+      step,
+      serializedCart,
+    ]);
   }
 };
 
 export const clearUserState = (phone: string) => {
-  getDb().prepare('DELETE FROM user_states WHERE phone = ?').run(phone);
+  dbRun('DELETE FROM user_states WHERE phone = ?', [phone]);
 };

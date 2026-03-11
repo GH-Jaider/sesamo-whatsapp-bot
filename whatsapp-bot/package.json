@@ -12,7 +12,6 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "better-sqlite3",
       "protobufjs",
       "@whiskeysockets/baileys",
       "sharp"
@@ -24,16 +23,16 @@
   "dependencies": {
     "@hapi/boom": "^10.0.1",
     "@whiskeysockets/baileys": "^6.7.21",
-    "better-sqlite3": "^12.6.2",
     "dotenv": "^17.3.1",
     "pino": "^10.3.1",
-    "qrcode-terminal": "^0.12.0"
+    "qrcode-terminal": "^0.12.0",
+    "sql.js": "^1.14.1"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/hapi__boom": "^9.0.1",
     "@types/node": "^25.4.0",
     "@types/qrcode-terminal": "^0.12.2",
+    "@types/sql.js": "^1.4.9",
     "@typescript-eslint/eslint-plugin": "^8.57.0",
     "@typescript-eslint/parser": "^8.57.0",
     "eslint": "^8.57.1",

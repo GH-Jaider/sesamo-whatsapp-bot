@@ -1,7 +1,7 @@
 import { WAMessage, WASocket } from '@whiskeysockets/baileys';
 import { getUserState, updateUserState, clearUserState } from '@/state';
 import { sendTextMessage, sendListMessage, downloadMedia, formatPrice } from '@/whatsapp/utils';
-import { getDb } from '@/db';
+import { dbAll, dbGet, dbRun } from '@/db';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -124,26 +124,27 @@ async function handleWelcome(sock: WASocket, jid: string, phone: string) {
   );
 }
 
+function buildMenuSections(products: Product[]) {
+  const categories: Record<string, { title: string; rowId: string; description: string }[]> = {};
+  products.forEach((p) => {
+    if (!categories[p.category]) categories[p.category] = [];
+    categories[p.category]!.push({
+      title: p.name,
+      rowId: p.id,
+      description: `${formatPrice(p.price)} - ${p.description}`,
+    });
+  });
+
+  return Object.keys(categories).map((cat) => ({
+    title: cat,
+    rows: categories[cat]!,
+  }));
+}
+
 async function handleWelcomeInput(sock: WASocket, jid: string, phone: string, text: string) {
   if (text.trim() === '1') {
-    const products = getDb()
-      .prepare('SELECT * FROM products WHERE available = 1')
-      .all() as Product[];
-
-    const categories: Record<string, { title: string; rowId: string; description: string }[]> = {};
-    products.forEach((p) => {
-      if (!categories[p.category]) categories[p.category] = [];
-      categories[p.category]!.push({
-        title: p.name,
-        rowId: p.id,
-        description: `${formatPrice(p.price)} - ${p.description}`,
-      });
-    });
-
-    const sections = Object.keys(categories).map((cat) => ({
-      title: cat,
-      rows: categories[cat]!,
-    }));
+    const products = dbAll<Product>('SELECT * FROM products WHERE available = 1');
+    const sections = buildMenuSections(products);
 
     updateUserState(phone, 'MENU', { items: [] });
     await sendListMessage(
@@ -168,9 +169,9 @@ async function handleWelcomeInput(sock: WASocket, jid: string, phone: string, te
 
 async function handleMenuSelection(sock: WASocket, jid: string, phone: string, text: string) {
   const productId = text.trim();
-  const product = getDb()
-    .prepare('SELECT * FROM products WHERE id = ? AND available = 1')
-    .get(productId) as Product | undefined;
+  const product = dbGet<Product>('SELECT * FROM products WHERE id = ? AND available = 1', [
+    productId,
+  ]);
 
   if (!product) {
     await sendTextMessage(sock, jid, 'Producto no encontrado o no disponible. Intenta de nuevo.');
@@ -206,23 +207,8 @@ async function handleMenuSelection(sock: WASocket, jid: string, phone: string, t
 
 async function handleCartConfirm(sock: WASocket, jid: string, phone: string, text: string) {
   if (text.trim() === '1') {
-    const products = getDb()
-      .prepare('SELECT * FROM products WHERE available = 1')
-      .all() as Product[];
-    const categories: Record<string, { title: string; rowId: string; description: string }[]> = {};
-    products.forEach((p) => {
-      if (!categories[p.category]) categories[p.category] = [];
-      categories[p.category]!.push({
-        title: p.name,
-        rowId: p.id,
-        description: `${formatPrice(p.price)} - ${p.description}`,
-      });
-    });
-
-    const sections = Object.keys(categories).map((cat) => ({
-      title: cat,
-      rows: categories[cat]!,
-    }));
+    const products = dbAll<Product>('SELECT * FROM products WHERE available = 1');
+    const sections = buildMenuSections(products);
 
     updateUserState(phone, 'MENU');
     await sendListMessage(
@@ -304,14 +290,10 @@ async function handlePayment(sock: WASocket, jid: string, phone: string, msg: WA
   const advance = Math.ceil(total / 2);
 
   // Save order to DB
-  const result = getDb()
-    .prepare(
-      `
-    INSERT INTO orders (customer_phone, total, status, notes, advance_paid) 
-    VALUES (?, ?, ?, ?, ?)
-  `,
-    )
-    .run(phone, total, 'PENDING', cartData.notes, advance);
+  const result = dbRun(
+    'INSERT INTO orders (customer_phone, total, status, notes, advance_paid) VALUES (?, ?, ?, ?, ?)',
+    [phone, total, 'PENDING', cartData.notes, advance],
+  );
 
   const orderId = result.lastInsertRowid;
 
@@ -370,7 +352,7 @@ async function handleAdminWelcome(sock: WASocket, jid: string, phone: string) {
 
 async function handleAdminMenuSelection(sock: WASocket, jid: string, phone: string, text: string) {
   if (text.trim() === '1') {
-    const products = getDb().prepare('SELECT * FROM products').all() as Product[];
+    const products = dbAll<Product>('SELECT * FROM products');
 
     const rows = products.map((p) => ({
       title: `${p.available ? '🟢' : '🔴'} ${p.name}`,
@@ -400,13 +382,11 @@ async function handleAdminManageMenuSelection(
   text: string,
 ) {
   const productId = text.trim();
-  const product = getDb().prepare('SELECT * FROM products WHERE id = ?').get(productId) as
-    | Product
-    | undefined;
+  const product = dbGet<Product>('SELECT * FROM products WHERE id = ?', [productId]);
 
   if (product) {
     const newAvailable = product.available ? 0 : 1;
-    getDb().prepare('UPDATE products SET available = ? WHERE id = ?').run(newAvailable, productId);
+    dbRun('UPDATE products SET available = ? WHERE id = ?', [newAvailable, productId]);
 
     await sendTextMessage(
       sock,
@@ -428,7 +408,7 @@ async function processOrderValidation(
   orderId: string,
   isApproved: boolean,
 ) {
-  const order = getDb().prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any;
+  const order = dbGet<any>('SELECT * FROM orders WHERE id = ?', [orderId]);
   if (!order) {
     await sendTextMessage(sock, adminJid, `No se encontró el pedido #${orderId}.`);
     return;
@@ -444,19 +424,19 @@ async function processOrderValidation(
   }
 
   const newStatus = isApproved ? 'APPROVED' : 'REJECTED';
-  getDb().prepare('UPDATE orders SET status = ? WHERE id = ?').run(newStatus, orderId);
+  dbRun('UPDATE orders SET status = ? WHERE id = ?', [newStatus, orderId]);
 
   const customerJid = `${order.customer_phone}@s.whatsapp.net`;
 
   if (isApproved) {
-    await sendTextMessage(sock, adminJid, `✅ Pedido #${orderId} APROBADO.`);
+    await sendTextMessage(sock, adminJid, `Pedido #${orderId} APROBADO.`);
     await sendTextMessage(
       sock,
       customerJid,
-      `¡Pago confirmado! Tu pedido (ID: #${orderId}) ya se está preparando. Te avisaremos cuando esté listo.`,
+      `Pago confirmado! Tu pedido (ID: #${orderId}) ya se está preparando. Te avisaremos cuando esté listo.`,
     );
   } else {
-    await sendTextMessage(sock, adminJid, `❌ Pedido #${orderId} RECHAZADO.`);
+    await sendTextMessage(sock, adminJid, `Pedido #${orderId} RECHAZADO.`);
     await sendTextMessage(
       sock,
       customerJid,

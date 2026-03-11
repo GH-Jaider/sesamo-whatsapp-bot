@@ -6,7 +6,7 @@ import { connectToWhatsApp } from '@/whatsapp/connection';
 
 async function main() {
   console.log('Initializing Database...');
-  initDb();
+  await initDb();
 
   console.log('Connecting to WhatsApp...');
   await connectToWhatsApp();
