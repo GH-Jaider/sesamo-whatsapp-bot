@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Menú - Finca Sésamo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Lora:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Lora', serif;
+            background-color: #FDFBF7; /* Warm off-white */
+            color: #2D3748;
+        }
+        h1, h2, h3, .title-font {
+            font-family: 'Playfair Display', serif;
+        }
+        .bg-pattern {
+            background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23d2b48c' fill-opacity='0.1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+        }
+        .separator {
+            width: 80px;
+            height: 2px;
+            background-color: #D4A373; /* Warm gold/rustic color */
+            margin: 1.5rem auto;
+        }
+        .price {
+            font-weight: 600;
+            color: #8B5A2B; /* Darker warm brown */
+        }
+        .item-dots {
+            flex-grow: 1;
+            border-bottom: 1px dotted #CBD5E0;
+            margin: 0 10px;
+            position: relative;
+            top: -6px;
+        }
+    </style>
+</head>
+<body class="bg-pattern min-h-screen pb-12">
+    <div class="max-w-4xl mx-auto bg-white/95 backdrop-blur-sm shadow-xl mt-8 sm:mt-12 border border-stone-200">
+        <!-- Header -->
+        <header class="text-center pt-16 pb-10 px-6 bg-stone-900 text-stone-100">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-32 h-auto mx-auto mb-6 text-[#D4A373] fill-current drop-shadow-md" viewBox="60 30 80 60"><path d="m128.886 48.666 1.796 3.11-4.838-.925-12.285 3.025v-5.21Z"/><path d="m130.093 53.047-6.383 3.684-8-1.985 10.174-2.511Zm-8.619-22.523L115 38.194l-2.534 8.773-6.857-3.964 5-8.659Zm-8.83 25.96.897 3.34-4.963 18.874c-.567-7.332-.39-14.24 4.066-22.214"/><path d="M112.204 48.38v6.17c-5.468 9.003-5.605 16.593-4.941 24.703-.945-2.448-2.088-5.816-2.61-8.9-.571-3.425-.067-6.914.928-11.432 1.207-5.457 1.275-9.803.188-14.253Z"/><path d="m107.33 82.976-4.392 4.318h-7.44L91.1 82.976c.668-1.487 3.15-7.23 4.014-12.4.613-3.631.069-7.4-.937-11.947-1.27-5.748-1.247-10.026.08-14.693h9.917c1.333 4.667 1.349 8.945.08 14.693-1.001 4.547-1.55 8.316-.938 11.948.869 5.17 3.352 10.912 4.015 12.399"/><path d="M92.85 58.92c1 4.519 1.503 8.008.926 11.434-.515 3.083-1.659 6.45-2.609 8.899.664-8.11.527-15.7-4.935-24.702V48.38l6.434-3.712c-1.087 4.45-1.018 8.796.183 14.253m-5.027-24.577 5.005 8.66-6.863 3.963-2.535-8.774-6.473-7.669Z"/><path d="M85.786 56.484c4.46 7.98 4.639 14.893 4.066 22.225l-4.963-18.885Zm-.916-7.818v5.21L72.587 50.85l-4.833.926 1.796-3.111Z"/><path d="M82.726 54.745 74.72 56.73l-6.383-3.684 4.215-.812Z"/></svg>
+            <h1 class="text-5xl md:text-6xl font-bold tracking-wide mb-4">SÉSAMO</h1>
+            <p class="text-lg italic text-stone-300 max-w-2xl mx-auto">"No es restaurante. Es que mamá cocina rico."</p>
+            <div class="w-16 h-0.5 bg-stone-500 mx-auto my-6"></div>
+            <p class="text-md uppercase tracking-widest text-stone-400">Restaurante & Experiencia</p>
+        </header>
+
+        <!-- Intro -->
+        <div class="text-center px-8 md:px-20 py-12 bg-stone-100">
+            <p class="text-lg leading-relaxed text-stone-700">
+                <strong>¡Nuestra especialidad es la trucha!</strong><br>
+                La trucha es el orgullo de Sésamo. Fresca, de nuestros propios pozos, y cocinada a la perfección.
+            </p>
+        </div>
+
+        <div class="px-6 md:px-16 py-12 space-y-16">
+            
+            <!-- Desayunos -->
+            <section>
+                <div class="text-center mb-8">
+                    <h2 class="text-3xl font-semibold text-stone-800">El Amanecer</h2>
+                    <p class="italic text-stone-500 mt-2">Para empezar la mañana frente al frío del Neusa. Un desayuno generoso, preparado con paciencia en nuestra estufa de leña.</p>
+                    <div class="separator"></div>
+                </div>
+                
+                <div class="space-y-6">
+                    <div>
+                        <div class="flex items-end justify-between mb-1">
+                            <h3 class="text-xl font-medium text-stone-800">Desayuno Tradicional Sésamo</h3>
+                            <div class="item-dots"></div>
+                            <span class="price text-lg">$18.000</span>
+                        </div>
+                        <p class="text-stone-500 text-sm italic">Incluye: Arepa artesanal, huevos revueltos y bebida caliente (chocolate o café).</p>
+                    </div>
+
+                    <div class="pl-0 md:pl-6 mt-4 space-y-3 border-l-2 border-stone-200">
+                        <p class="text-sm font-bold text-stone-700 uppercase tracking-wide mb-2">Adicionales:</p>
+                        <div class="flex items-end justify-between">
+                            <span class="text-stone-700">Caldo de Costilla</span>
+                            <div class="item-dots"></div>
+                            <span class="price">$14.000</span>
+                        </div>
+                        <div class="flex items-end justify-between">
+                            <span class="text-stone-700">Changua</span>
+                            <div class="item-dots"></div>
+                            <span class="price">$12.000</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Almuerzos -->
+            <section>
+                <div class="text-center mb-8">
+                    <h2 class="text-3xl font-semibold text-stone-800">Almuerzos de la Finca</h2>
+                    <p class="italic text-stone-500 mt-2">El clásico almuerzo, elevado con la técnica de nuestra chef. Perfecto para reconfortar el cuerpo tras un día en la montaña.</p>
+                    <div class="separator"></div>
+                </div>
+                
+                <div>
+                    <div class="flex items-end justify-between mb-2">
+                        <h3 class="text-xl font-medium text-stone-800">El Menú de la Casa</h3>
+                        <div class="item-dots"></div>
+                        <span class="price text-lg">$35.000</span>
+                    </div>
+                    <p class="text-stone-500 text-base mb-4 italic">Guarniciones incluidas: Arroz, ensalada fresca, patacón y yuca frita.</p>
+                    
+                    <p class="text-sm font-bold text-stone-700 uppercase tracking-wide mb-3">Elige tu proteína:</p>
+                    <div class="grid grid-cols-2 gap-3 text-stone-700">
+                        <div class="flex items-center space-x-2">
+                            <svg class="w-4 h-4 text-stone-400" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"></path></svg>
+                            <span>Pechuga de pollo</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <svg class="w-4 h-4 text-stone-400" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"></path></svg>
+                            <span>Pierna pernil</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <svg class="w-4 h-4 text-stone-400" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"></path></svg>
+                            <span>Lomo de cerdo</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <svg class="w-4 h-4 text-stone-400" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"></path></svg>
+                            <span>Carne de res</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Especiales: Truchas -->
+            <section>
+                <div class="text-center mb-10">
+                    <h2 class="text-3xl font-semibold text-stone-800">Nuestras Truchas</h2>
+                    <p class="italic text-stone-500 mt-2">Trucha fresca, de los pozos de Sésamo</p>
+                    <p class="text-sm text-stone-400 mt-1">Todas acompañadas de: Patacón, yuca frita, arroz y ensalada.</p>
+                    <div class="separator"></div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-6">
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">A la plancha</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$40.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">A la plancha gratinada</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$42.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">Al ajillo gratinada</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$44.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">A la mandarina gratinada</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$47.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">Al pimentón gratinada</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$47.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">En salsa de ciruela gratinada</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$47.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">Con champiñones</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$48.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800 font-medium">Con camarón y palmitos</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$50.000</span>
+                    </div>
+                    <div class="flex items-end justify-between md:col-span-2 md:w-1/2 md:mx-auto mt-2">
+                        <span class="text-stone-800 font-medium title-font text-lg">Marinera Sésamo</span>
+                        <div class="item-dots"></div>
+                        <span class="price text-lg">$52.000</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Especiales: Carnes y Pollos -->
+            <section>
+                <div class="text-center mb-10">
+                    <h2 class="text-3xl font-semibold text-stone-800">Carnes y Pollos</h2>
+                    <p class="italic text-stone-500 mt-2">Cortes clásicos con un sabor contundente. Para quienes vienen con buen apetito y buscan algo hecho a la perfección.</p>
+                    <p class="text-sm text-stone-400 mt-1">Acompañados de: Patacón, yuca frita, arroz y ensalada.</p>
+                    <div class="separator"></div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-6">
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">Pechuga a la plancha</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$40.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">Lomo de cerdo a la plancha</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$40.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">Pechuga en salsa ciruela gratinada</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$43.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">Lomo de cerdo con champiñones gratinado</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$43.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">Churrasco a la parrilla</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$45.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">Pechuga con champiñones gratinada</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$45.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">Churrasco gratinado</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$47.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800 font-medium">Churrasco con champiñones gratinado</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$50.000</span>
+                    </div>
+                </div>
+            </section>
+
+           
+
+            <!-- Bebidas -->
+            <section>
+                <div class="text-center mb-8">
+                    <h2 class="text-3xl font-semibold text-stone-800">Bebidas Refrescantes</h2>
+                    <p class="italic text-stone-500 mt-2">El toque natural perfecto para acompañar tu experiencia.</p>
+                    <div class="separator"></div>
+                </div>
+                
+                <div class="max-w-md mx-auto space-y-4">
+                    <h3 class="text-sm font-bold text-stone-700 uppercase tracking-wide mb-3 text-center">Jarras de Limonada</h3>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">Limonada Natural</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$10.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">Limonada de Yerbabuena</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$15.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <span class="text-stone-800">Limonada de Menta</span>
+                        <div class="item-dots"></div>
+                        <span class="price">$15.000</span>
+                    </div>
+                </div>
+            </section>
+
+             <!-- Lácteos de Cabra (Nuevo) -->
+            <section class="bg-stone-100 p-8 rounded-xl border border-stone-200">
+                <div class="text-center mb-6">
+                    <h2 class="text-2xl font-semibold text-stone-800">Nuestros Lácteos de Cabra</h2>
+                    <p class="italic text-stone-600 mt-2">Directo de nuestro rebaño. Leche y queso elaborados de manera artesanal y cuidando cada detalle.</p>
+                </div>
+                
+                <div class="space-y-4 max-w-lg mx-auto">
+                    <div class="flex items-end justify-between">
+                        <div>
+                            <span class="text-stone-800 font-medium text-lg">Queso de Cabra</span>
+                            <span class="text-stone-500 text-sm ml-2">/ libra</span>
+                        </div>
+                        <div class="item-dots"></div>
+                        <span class="price">$30.000</span>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <div>
+                            <span class="text-stone-800 font-medium text-lg">Leche de Cabra</span>
+                            <span class="text-stone-500 text-sm ml-2">/ litro</span>
+                        </div>
+                        <div class="item-dots"></div>
+                        <span class="price">$11.000</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Contacto y Reservas -->
+            <section class="text-center pt-8 border-t border-stone-200">
+                <h2 class="text-2xl font-semibold text-stone-800 mb-6">Contacto y Reservas</h2>
+                <div class="flex flex-col md:flex-row justify-center items-center gap-8 text-stone-600">
+                    <div class="flex items-center gap-2">
+                        <svg class="w-5 h-5 text-[#D4A373]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path></svg>
+                        <span>[Tu Número de WhatsApp]</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <svg class="w-5 h-5 text-[#D4A373]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        <span>[Tu Dirección/Ubicación en Tausa]</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <svg class="w-5 h-5 text-[#D4A373]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        <span>[Tus Redes Sociales / Instagram]</span>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+
+        <!-- Footer -->
+        <footer class="text-center py-8 bg-stone-900 text-stone-400 text-sm mt-8">
+            <p>Finca Sésamo - Delicias del Campo</p>
+            <p class="mt-1">Naturaleza, Hogar y Sazón de Mamá</p>
+        </footer>
+    </div>
+</body>
+</html>
