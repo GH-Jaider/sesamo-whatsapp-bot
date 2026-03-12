@@ -88,7 +88,9 @@ export const handleMessage = async (phone: string, userMessage: string, mediaId?
       // and they don't have an active admin state (ADMIN_MENU, ADMIN_MANAGE_MENU, etc.)
       if (
         !state ||
-        (state.current_step !== 'ADMIN_MENU' && state.current_step !== 'ADMIN_MANAGE_MENU')
+        (state.current_step !== 'ADMIN_MENU' &&
+          state.current_step !== 'ADMIN_MANAGE_MENU' &&
+          state.current_step !== 'ADMIN_MANAGE_ITEMS')
       ) {
         const pendingOrder = dbGet<Order>(
           "SELECT * FROM orders WHERE status = 'PENDING' AND voucher_path IS NOT NULL ORDER BY created_at DESC LIMIT 1",
@@ -165,6 +167,8 @@ export const handleMessage = async (phone: string, userMessage: string, mediaId?
         return handleAdminMenuSelection(phone, userMessage);
       case 'ADMIN_MANAGE_MENU':
         return handleAdminManageMenuSelection(phone, userMessage);
+      case 'ADMIN_MANAGE_ITEMS':
+        return handleAdminManageItemSelection(phone, userMessage);
       default:
         return handleWelcome(phone);
     }
@@ -826,41 +830,7 @@ async function handleAdminMenuSelection(phone: string, text: string) {
   const parsed = parseCommand(text);
 
   if (parsed.type === 'number' && parsed.num === 1) {
-    const categories = dbAll<Category>('SELECT * FROM categories ORDER BY display_order');
-    const sections: {
-      title: string;
-      rows: { title: string; rowId: string; description?: string }[];
-    }[] = [];
-
-    for (const cat of categories) {
-      const items = dbAll<MenuItem>(
-        'SELECT * FROM menu_items WHERE category_id = ? ORDER BY display_order',
-        [cat.id],
-      );
-      if (items.length === 0) continue;
-
-      sections.push({
-        title: cat.name.slice(0, 24),
-        rows: items.map((item) => ({
-          title: item.name.slice(0, 24),
-          rowId: String(item.id),
-          description:
-            `${item.available ? '🟢 Activo' : '🔴 Inactivo'} — ${msg.formatPrice(item.price)}`.slice(
-              0,
-              72,
-            ),
-        })),
-      });
-    }
-
-    updateUserState(phone, 'ADMIN_MANAGE_MENU');
-    await sendList(
-      phone,
-      'Selecciona un ítem para cambiar su estado (activar/desactivar).',
-      'Ver ítems',
-      sections,
-    );
-    return;
+    return showAdminCategoryList(phone);
   }
 
   if (parsed.type === 'number' && parsed.num === 2) {
@@ -874,30 +844,102 @@ async function handleAdminMenuSelection(phone: string, text: string) {
   clearUserState(phone);
 }
 
-async function handleAdminManageMenuSelection(phone: string, text: string) {
-  const parsed = parseCommand(text);
-  if (parsed.type !== 'number' || !parsed.num) {
-    await sendText(phone, 'Elige un ítem de la lista.');
-    return;
-  }
-
-  const item = dbGet<MenuItem>('SELECT * FROM menu_items WHERE id = ?', [parsed.num]);
-
-  if (item) {
-    const newAvailable = item.available ? 0 : 1;
-    dbRun('UPDATE menu_items SET available = ? WHERE id = ?', [newAvailable, item.id]);
-
-    await sendText(
-      phone,
-      `*${item.name}* ha sido ${newAvailable ? 'activado 🟢' : 'desactivado 🔴'}.`,
+async function showAdminCategoryList(phone: string) {
+  const categories = dbAll<Category>('SELECT * FROM categories ORDER BY display_order');
+  const rows = categories.map((cat) => {
+    const counts = dbGet<{ total: number; active: number }>(
+      'SELECT count(*) as total, sum(available) as active FROM menu_items WHERE category_id = ?',
+      [cat.id],
     );
+    return {
+      title: cat.name.slice(0, 24),
+      rowId: `admin_cat_${cat.id}`,
+      description: `${counts?.active ?? 0}/${counts?.total ?? 0} activos`,
+    };
+  });
 
-    // Show menu again
-    await handleAdminMenuSelection(phone, '1');
-  } else {
-    await sendText(phone, 'Ítem no encontrado.');
-    await handleAdminMenuSelection(phone, '1');
+  updateUserState(phone, 'ADMIN_MANAGE_MENU');
+  await sendList(phone, 'Elige una categoría para gestionar sus ítems.', 'Ver categorías', [
+    { title: 'Categorías', rows },
+  ]);
+}
+
+async function showAdminCategoryItems(phone: string, categoryId: number) {
+  const category = dbGet<Category>('SELECT * FROM categories WHERE id = ?', [categoryId]);
+  if (!category) {
+    await sendText(phone, 'Categoría no encontrada.');
+    return showAdminCategoryList(phone);
   }
+
+  const items = dbAll<MenuItem>(
+    'SELECT * FROM menu_items WHERE category_id = ? ORDER BY display_order',
+    [categoryId],
+  );
+
+  if (items.length === 0) {
+    await sendText(phone, 'No hay ítems en esta categoría.');
+    return showAdminCategoryList(phone);
+  }
+
+  const rows = items.map((item) => ({
+    title: item.name.slice(0, 24),
+    rowId: `admin_item_${item.id}`,
+    description:
+      `${item.available ? '🟢 Activo' : '🔴 Inactivo'} — ${msg.formatPrice(item.price)}`.slice(
+        0,
+        72,
+      ),
+  }));
+
+  // Add "back" row
+  rows.push({ title: 'Volver', rowId: 'admin_back', description: 'Volver a categorías' });
+
+  updateUserState(phone, 'ADMIN_MANAGE_ITEMS');
+  await sendList(phone, `*${category.name}* — toca un ítem para activar/desactivar.`, 'Ver ítems', [
+    { title: category.name, rows },
+  ]);
+}
+
+async function handleAdminManageMenuSelection(phone: string, text: string) {
+  const normalized = normalizeInput(text);
+
+  // Category selection: rowId is "admin_cat_N"
+  const catMatch = normalized.match(/^admin_cat_(\d+)$/);
+  if (catMatch?.[1]) {
+    return showAdminCategoryItems(phone, parseInt(catMatch[1], 10));
+  }
+
+  await sendText(phone, 'Elige una categoría de la lista.');
+}
+
+async function handleAdminManageItemSelection(phone: string, text: string) {
+  const normalized = normalizeInput(text);
+
+  if (normalized === 'admin_back') {
+    return showAdminCategoryList(phone);
+  }
+
+  // Item toggle: rowId is "admin_item_N"
+  const itemMatch = normalized.match(/^admin_item_(\d+)$/);
+  if (itemMatch?.[1]) {
+    const itemId = parseInt(itemMatch[1], 10);
+    const item = dbGet<MenuItem>('SELECT * FROM menu_items WHERE id = ?', [itemId]);
+
+    if (item) {
+      const newAvailable = item.available ? 0 : 1;
+      dbRun('UPDATE menu_items SET available = ? WHERE id = ?', [newAvailable, item.id]);
+
+      await sendText(
+        phone,
+        `*${item.name}* ha sido ${newAvailable ? 'activado 🟢' : 'desactivado 🔴'}.`,
+      );
+
+      // Re-show items in same category
+      return showAdminCategoryItems(phone, item.category_id);
+    }
+  }
+
+  await sendText(phone, 'Elige un ítem de la lista.');
 }
 
 // ---------------------------------------------------------------------------
