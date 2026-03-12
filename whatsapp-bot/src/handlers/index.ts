@@ -826,24 +826,39 @@ async function handleAdminMenuSelection(phone: string, text: string) {
   const parsed = parseCommand(text);
 
   if (parsed.type === 'number' && parsed.num === 1) {
-    const items = dbAll<MenuItem>('SELECT * FROM menu_items ORDER BY category_id, display_order');
+    const categories = dbAll<Category>('SELECT * FROM categories ORDER BY display_order');
+    const sections: {
+      title: string;
+      rows: { title: string; rowId: string; description?: string }[];
+    }[] = [];
 
-    const rows = items.map((item) => ({
-      title: item.name.slice(0, 24),
-      rowId: String(item.id),
-      description:
-        `${item.available ? '🟢 Activo' : '🔴 Inactivo'} — ${msg.formatPrice(item.price)}`.slice(
-          0,
-          72,
-        ),
-    }));
+    for (const cat of categories) {
+      const items = dbAll<MenuItem>(
+        'SELECT * FROM menu_items WHERE category_id = ? ORDER BY display_order',
+        [cat.id],
+      );
+      if (items.length === 0) continue;
+
+      sections.push({
+        title: cat.name.slice(0, 24),
+        rows: items.map((item) => ({
+          title: item.name.slice(0, 24),
+          rowId: String(item.id),
+          description:
+            `${item.available ? '🟢 Activo' : '🔴 Inactivo'} — ${msg.formatPrice(item.price)}`.slice(
+              0,
+              72,
+            ),
+        })),
+      });
+    }
 
     updateUserState(phone, 'ADMIN_MANAGE_MENU');
     await sendList(
       phone,
       'Selecciona un ítem para cambiar su estado (activar/desactivar).',
       'Ver ítems',
-      [{ title: 'Ítems del Menú', rows }],
+      sections,
     );
     return;
   }
