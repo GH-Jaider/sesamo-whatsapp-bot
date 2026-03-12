@@ -225,7 +225,7 @@ const seedDb = () => {
       id: 2,
       name: 'Almuerzos',
       order: 2,
-      desc: 'Almuerzos de la Finca — el clásico almuerzo elevado con técnica de chef',
+      desc: 'Almuerzos de la Granja — el clásico almuerzo elevado con técnica de chef',
     },
     {
       id: 3,

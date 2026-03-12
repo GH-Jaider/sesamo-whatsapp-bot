@@ -11,7 +11,7 @@ export function formatPrice(price: number): string {
 
 export function welcomeMessage(): string {
   return (
-    `*Bienvenido a Finca Sésamo* 🐐\n` +
+    `*Bienvenido a Granja Sésamo* 🐐\n` +
     `_"No es restaurante. Es que mamá cocina rico."_\n\n` +
     `Nuestra especialidad es la trucha fresca, directo de nuestros pozos.\n` +
     `Estamos cerca del Embalse del Neusa — naturaleza, hogar y sazón de mamá.\n\n` +
@@ -21,7 +21,7 @@ export function welcomeMessage(): string {
 
 export function infoMessage(): string {
   return (
-    `*Finca Sésamo* 🐐\n` +
+    `*Granja Sésamo* 🐐\n` +
     `_Restaurante & Experiencia_\n\n` +
     `Comida preparada por chef Delfi\n` +
     `Haz tu pedido con anticipación\n` +
@@ -216,7 +216,7 @@ export function cancellationConfirm(): string {
 
 export function helpMessage(): string {
   return (
-    `*Ayuda — Finca Sésamo* 🐐\n\n` +
+    `*Ayuda — Granja Sésamo* 🐐\n\n` +
     `Comandos disponibles:\n` +
     `• *hola* o *menu* — Ver el menú y hacer un pedido\n` +
     `• *cancelar* — Cancelar tu pedido actual\n` +

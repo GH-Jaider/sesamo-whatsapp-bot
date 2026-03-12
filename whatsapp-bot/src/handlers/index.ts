@@ -199,7 +199,7 @@ async function handleWelcome(phone: string) {
         ],
       },
     ],
-    'Finca Sésamo',
+    'Granja Sésamo',
   );
 }
 
