@@ -144,7 +144,7 @@ export function orderSummaryCompact(
 // ---------------------------------------------------------------------------
 
 export function notesPrompt(): string {
-  return `¿Tienes alguna instrucción especial? (Ej. "Sin cebolla")\n\nSi no tienes, escribe *listo*.`;
+  return `¿Tienes alguna instrucción especial?\n\nEj: "Sin cebolla", "Extra picante"\n\nSi no tienes, toca el botón. Si tienes, escríbelas.`;
 }
 
 export function orderReceipt(

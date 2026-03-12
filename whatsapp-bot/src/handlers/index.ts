@@ -603,7 +603,9 @@ async function handleCartConfirm(phone: string, text: string) {
   }
 
   if (isDone) {
-    updateUserState(phone, 'CHOOSE_DELIVERY_MODE');
+    const st = getUserState(phone)!;
+    const cartData = getCartData(st.cart_data);
+    updateUserState(phone, 'CHOOSE_DELIVERY_MODE', cartData);
     await sendButtons(phone, msg.deliveryModePrompt(), [
       { buttonId: 'dine_in', buttonText: 'Comer en Sésamo' },
       { buttonId: 'delivery', buttonText: 'Llevar al glamping' },
@@ -679,7 +681,9 @@ async function handleOrderTime(phone: string, text: string) {
   }
 
   updateUserState(phone, 'NOTES', cart);
-  await sendText(phone, msg.notesPrompt());
+  await sendButtons(phone, msg.notesPrompt(), [
+    { buttonId: 'skip_notes', buttonText: 'Sin comentarios' },
+  ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -691,7 +695,13 @@ async function handleNotes(phone: string, text: string) {
   const state = getUserState(phone)!;
   const cart = getCartData(state.cart_data);
 
-  const notes = normalized === 'listo' || normalized === 'ninguna' ? '' : text.trim();
+  const notes =
+    normalized === 'listo' ||
+    normalized === 'ninguna' ||
+    normalized === 'skip_notes' ||
+    normalized === 'sin comentarios'
+      ? ''
+      : text.trim();
   const total = calcSubtotal(cart.items);
   const advance = Math.ceil(total / 2);
   const nequi = process.env.NEQUI_NUMBER || 'No configurado';
@@ -839,7 +849,9 @@ async function handleAdminMenuSelection(phone: string, text: string) {
   }
 
   if (parsed.type === 'number' && parsed.num === 2) {
-    return handlePedidos(phone);
+    await handlePedidos(phone);
+    // Re-show admin menu after viewing orders
+    return handleAdminWelcome(phone);
   }
 
   // Exit
