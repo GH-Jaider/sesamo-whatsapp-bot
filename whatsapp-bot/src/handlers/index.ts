@@ -329,7 +329,7 @@ async function handleItemSelect(phone: string, text: string) {
 
   // Check if item has options
   const options = dbAll<ItemOption>(
-    'SELECT * FROM item_options WHERE menu_item_id = ? ORDER BY display_order',
+    'SELECT * FROM item_options WHERE menu_item_id = ? AND available = 1 ORDER BY display_order',
     [item.id],
   );
 
@@ -397,7 +397,7 @@ async function handleChooseProtein(phone: string, text: string) {
   }
 
   const option = dbGet<ItemOption>(
-    "SELECT * FROM item_options WHERE id = ? AND option_group = 'proteina'",
+    "SELECT * FROM item_options WHERE id = ? AND option_group = 'proteina' AND available = 1",
     [parsed.num],
   );
   if (!option) {
@@ -414,7 +414,7 @@ async function handleChooseProtein(phone: string, text: string) {
 
   // Check if the pending item also has add-ons
   const addons = dbAll<ItemOption>(
-    "SELECT * FROM item_options WHERE menu_item_id = ? AND option_group = 'adicional' ORDER BY display_order",
+    "SELECT * FROM item_options WHERE menu_item_id = ? AND option_group = 'adicional' AND available = 1 ORDER BY display_order",
     [cart.pendingItem?.menuItemId ?? 0],
   );
 
@@ -438,14 +438,14 @@ async function handleChooseBeverage(phone: string, text: string) {
   let option: ItemOption | undefined;
   if (parsed.type === 'number' && parsed.num) {
     option = dbGet<ItemOption>(
-      "SELECT * FROM item_options WHERE id = ? AND option_group = 'bebida'",
+      "SELECT * FROM item_options WHERE id = ? AND option_group = 'bebida' AND available = 1",
       [parsed.num],
     );
   }
   if (!option) {
     // Try matching by name (e.g. user typed "chocolate" or "café")
     const beverages = dbAll<ItemOption>(
-      "SELECT * FROM item_options WHERE menu_item_id = ? AND option_group = 'bebida' ORDER BY display_order",
+      "SELECT * FROM item_options WHERE menu_item_id = ? AND option_group = 'bebida' AND available = 1 ORDER BY display_order",
       [menuItemId],
     );
     option = beverages.find((b) => normalizeInput(b.name) === normalized);
@@ -462,7 +462,7 @@ async function handleChooseBeverage(phone: string, text: string) {
 
   // Check if the item also has add-ons
   const addons = dbAll<ItemOption>(
-    "SELECT * FROM item_options WHERE menu_item_id = ? AND option_group = 'adicional' ORDER BY display_order",
+    "SELECT * FROM item_options WHERE menu_item_id = ? AND option_group = 'adicional' AND available = 1 ORDER BY display_order",
     [menuItemId],
   );
 
@@ -510,7 +510,7 @@ async function handleChooseAddons(phone: string, text: string) {
   }
 
   const addon = dbGet<ItemOption>(
-    "SELECT * FROM item_options WHERE id = ? AND option_group = 'adicional'",
+    "SELECT * FROM item_options WHERE id = ? AND option_group = 'adicional' AND available = 1",
     [parsed.num],
   );
   if (!addon) {
@@ -858,6 +858,8 @@ async function showAdminCategoryList(phone: string) {
     };
   });
 
+  rows.push({ title: 'Salir', rowId: 'admin_exit', description: 'Volver al menú admin' });
+
   updateUserState(phone, 'ADMIN_MANAGE_MENU');
   await sendList(phone, 'Elige una categoría para gestionar sus ítems.', 'Ver categorías', [
     { title: 'Categorías', rows },
@@ -903,6 +905,10 @@ async function showAdminCategoryItems(phone: string, categoryId: number) {
 async function handleAdminManageMenuSelection(phone: string, text: string) {
   const normalized = normalizeInput(text);
 
+  if (normalized === 'admin_exit') {
+    return handleAdminWelcome(phone);
+  }
+
   // Category selection: rowId is "admin_cat_N"
   const catMatch = normalized.match(/^admin_cat_(\d+)$/);
   if (catMatch?.[1]) {
@@ -919,27 +925,105 @@ async function handleAdminManageItemSelection(phone: string, text: string) {
     return showAdminCategoryList(phone);
   }
 
-  // Item toggle: rowId is "admin_item_N"
+  if (normalized === 'admin_back_cat') {
+    // Back from options view to category items
+    const state = getUserState(phone);
+    const cart = state ? getCartData(state.cart_data) : { items: [] };
+    const catId = cart.selectedCategoryId;
+    if (catId) return showAdminCategoryItems(phone, catId);
+    return showAdminCategoryList(phone);
+  }
+
+  // Item tap: rowId is "admin_item_N"
   const itemMatch = normalized.match(/^admin_item_(\d+)$/);
   if (itemMatch?.[1]) {
     const itemId = parseInt(itemMatch[1], 10);
     const item = dbGet<MenuItem>('SELECT * FROM menu_items WHERE id = ?', [itemId]);
-
-    if (item) {
-      const newAvailable = item.available ? 0 : 1;
-      dbRun('UPDATE menu_items SET available = ? WHERE id = ?', [newAvailable, item.id]);
-
-      await sendText(
-        phone,
-        `*${item.name}* ha sido ${newAvailable ? 'activado 🟢' : 'desactivado 🔴'}.`,
-      );
-
-      // Re-show items in same category
-      return showAdminCategoryItems(phone, item.category_id);
+    if (!item) {
+      await sendText(phone, 'Ítem no encontrado.');
+      return;
     }
+
+    // Check if item has options — if so, show options for toggling
+    const options = dbAll<ItemOption>(
+      'SELECT * FROM item_options WHERE menu_item_id = ? ORDER BY display_order',
+      [itemId],
+    );
+
+    if (options.length > 0) {
+      return showAdminItemOptions(phone, item, options);
+    }
+
+    // No options — toggle the item itself
+    const newAvailable = item.available ? 0 : 1;
+    dbRun('UPDATE menu_items SET available = ? WHERE id = ?', [newAvailable, item.id]);
+
+    await sendText(
+      phone,
+      `*${item.name}* ha sido ${newAvailable ? 'activado 🟢' : 'desactivado 🔴'}.`,
+    );
+
+    return showAdminCategoryItems(phone, item.category_id);
+  }
+
+  // Option toggle: rowId is "admin_opt_N"
+  const optMatch = normalized.match(/^admin_opt_(\d+)$/);
+  if (optMatch?.[1]) {
+    const optId = parseInt(optMatch[1], 10);
+    const option = dbGet<ItemOption>('SELECT * FROM item_options WHERE id = ?', [optId]);
+    if (!option) {
+      await sendText(phone, 'Opción no encontrada.');
+      return;
+    }
+
+    const newAvailable = option.available ? 0 : 1;
+    dbRun('UPDATE item_options SET available = ? WHERE id = ?', [newAvailable, option.id]);
+
+    await sendText(
+      phone,
+      `*${option.name}* ha sido ${newAvailable ? 'activada 🟢' : 'desactivada 🔴'}.`,
+    );
+
+    // Re-show the options for the same item
+    const item = dbGet<MenuItem>('SELECT * FROM menu_items WHERE id = ?', [option.menu_item_id]);
+    if (item) {
+      const updatedOptions = dbAll<ItemOption>(
+        'SELECT * FROM item_options WHERE menu_item_id = ? ORDER BY display_order',
+        [item.id],
+      );
+      return showAdminItemOptions(phone, item, updatedOptions);
+    }
+    return showAdminCategoryList(phone);
   }
 
   await sendText(phone, 'Elige un ítem de la lista.');
+}
+
+async function showAdminItemOptions(phone: string, item: MenuItem, options: ItemOption[]) {
+  const rows = options.map((opt) => ({
+    title: opt.name.slice(0, 24),
+    rowId: `admin_opt_${opt.id}`,
+    description:
+      `${opt.available ? '🟢 Activa' : '🔴 Inactiva'}${opt.price > 0 ? ' — +' + msg.formatPrice(opt.price) : ''}`.slice(
+        0,
+        72,
+      ),
+  }));
+
+  rows.push({ title: 'Volver', rowId: 'admin_back_cat', description: 'Volver a ítems' });
+
+  // Store category in cart so "back" works
+  const state = getUserState(phone);
+  const cart = state ? getCartData(state.cart_data) : { items: [] };
+  cart.selectedCategoryId = item.category_id;
+  updateUserState(phone, 'ADMIN_MANAGE_ITEMS', cart);
+
+  await sendList(
+    phone,
+    `*${item.name}* — toca una opción para activar/desactivar.`,
+    'Ver opciones',
+    [{ title: 'Opciones', rows }],
+  );
 }
 
 // ---------------------------------------------------------------------------

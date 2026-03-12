@@ -136,9 +136,17 @@ export const initDb = async () => {
       option_group TEXT NOT NULL,
       name TEXT NOT NULL,
       price INTEGER NOT NULL DEFAULT 0,
+      available INTEGER NOT NULL DEFAULT 1,
       display_order INTEGER NOT NULL
     )
   `);
+
+  // Migrate existing item_options table: add available column if missing
+  try {
+    db.run(`ALTER TABLE item_options ADD COLUMN available INTEGER NOT NULL DEFAULT 1`);
+  } catch {
+    // Column already exists
+  }
 
   // --- Orders ---
   db.run(`

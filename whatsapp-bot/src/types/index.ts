@@ -23,6 +23,7 @@ export interface ItemOption {
   option_group: string;
   name: string;
   price: number;
+  available: number;
   display_order: number;
 }
 
