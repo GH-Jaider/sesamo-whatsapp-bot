@@ -6,6 +6,8 @@ The bot uses the **WhatsApp Cloud API** (official Meta API), so there's no QR
 scanning or Baileys sessions. You just need API credentials from Meta and a
 publicly reachable webhook URL.
 
+The same server also hosts the restaurant's menu and privacy policy pages.
+
 Based on: https://dev.to/quave/hosting-web-app-on-your-old-android-phone-54bg
 
 ---
@@ -81,13 +83,22 @@ Fill in the following:
 - **`ADMIN_PHONE`** — admin phone number (country code + number, no +)
 - **`NEQUI_NUMBER`** — Nequi number shown to customers for payment
 
-### Set up Cloudflare Tunnel for webhook
+### Set up Cloudflare Tunnel (persistent URL)
 
 The WhatsApp Cloud API sends messages to your bot via a webhook. The bot runs
 an HTTP server (default port 3000) that needs a publicly reachable HTTPS URL.
 
-**Cloudflare Tunnel** is the easiest way to expose a local server without port
-forwarding or a public IP.
+**Cloudflare Tunnel** gives you a permanent HTTPS URL for free — no port
+forwarding, no public IP, no domain purchase required.
+
+> **Important:** Do NOT use quick tunnels (`cloudflared tunnel --url ...`) in
+> production. The URL changes every time you restart. Use a **named tunnel**
+> instead — the URL stays the same forever.
+
+#### Option A: Free subdomain (no domain needed)
+
+You can use Cloudflare's free tunnel with a `*.cfargotunnel.com` URL. This
+requires a free Cloudflare account but no domain.
 
 1. Install `cloudflared`:
 
@@ -99,7 +110,7 @@ forwarding or a public IP.
    mv cloudflared-linux-arm64 $PREFIX/bin/cloudflared
    ```
 
-2. Authenticate (one-time):
+2. Log in to Cloudflare (opens a browser):
 
    ```bash
    cloudflared tunnel login
@@ -111,7 +122,34 @@ forwarding or a public IP.
    cloudflared tunnel create sesamo-bot
    ```
 
-4. Configure the tunnel (create `~/.cloudflared/config.yml`):
+   This creates a tunnel ID and credentials file at
+   `~/.cloudflared/<TUNNEL_ID>.json`. **Save the tunnel ID** — you need it.
+
+4. Create the config file `~/.cloudflared/config.yml`:
+
+   ```yaml
+   tunnel: <TUNNEL_ID>
+   credentials-file: /data/data/com.termux/files/home/.cloudflared/<TUNNEL_ID>.json
+
+   ingress:
+     - service: http://localhost:3000
+   ```
+
+5. The tunnel URL will be `https://<TUNNEL_ID>.cfargotunnel.com`.
+
+#### Option B: Custom domain (recommended if you own one)
+
+If you own a domain on Cloudflare (even a cheap `.com` works):
+
+1. Follow steps 1-3 from Option A.
+
+2. Route a DNS record to the tunnel:
+
+   ```bash
+   cloudflared tunnel route dns sesamo-bot bot.yourdomain.com
+   ```
+
+3. Create `~/.cloudflared/config.yml`:
 
    ```yaml
    tunnel: sesamo-bot
@@ -123,21 +161,20 @@ forwarding or a public IP.
      - service: http_status:404
    ```
 
-5. Add a DNS record (or use a quick tunnel for testing):
+4. Your tunnel URL is `https://bot.yourdomain.com`.
 
-   ```bash
-   # Named tunnel with DNS:
-   cloudflared tunnel route dns sesamo-bot bot.yourdomain.com
+#### Verify the tunnel works
 
-   # OR quick tunnel for testing (generates a random URL):
-   cloudflared tunnel --url http://localhost:3000
-   ```
+```bash
+# Start the tunnel
+cloudflared tunnel run sesamo-bot
 
-6. Run the tunnel:
+# In another terminal/tmux pane, start the bot
+pnpm start
 
-   ```bash
-   cloudflared tunnel run sesamo-bot
-   ```
+# Test from your computer
+curl https://<your-tunnel-url>/webhook
+```
 
 ### Configure the Meta webhook
 
@@ -146,6 +183,21 @@ forwarding or a public IP.
    (e.g., `https://bot.yourdomain.com/webhook`)
 3. Set the **Verify Token** to the same value as `WA_VERIFY_TOKEN` in your `.env`
 4. Subscribe to the **messages** webhook field
+
+### Public pages served by the bot
+
+The bot also serves static pages at these URLs:
+
+| URL | Content |
+|---|---|
+| `/menu` | Restaurant menu (HTML) |
+| `/menu.pdf` | Menu PDF |
+| `/privacidad` | Privacy policy (HTML) — use this as the **Privacy Policy URL** in Meta app settings |
+| `/privacidad.pdf` | Privacy policy PDF |
+
+For example: `https://bot.yourdomain.com/privacidad`
+
+Set this URL in **Meta Developers > App Settings > Basic > Privacy Policy URL**.
 
 ### First run — verify everything works
 
@@ -159,10 +211,13 @@ test.
 
 ---
 
-## 4. Keep the Bot Alive (the critical part)
+## 4. Keep the Bot Alive (CRITICAL)
 
 Android aggressively kills background processes to save battery. Without these
-steps, Termux will be killed within minutes of locking the screen.
+steps, Termux will be killed within minutes of locking the screen. **Do ALL of
+these steps — each one matters.**
+
+> Reference: https://dontkillmyapp.com/
 
 ### 4a. Acquire a Wake Lock
 
@@ -184,36 +239,70 @@ termux-wake-unlock
 
 ### 4b. Disable Battery Optimization for Termux
 
-Go to **Android Settings → Apps → Termux → Battery** and set it to:
+Go to **Android Settings > Apps > Termux > Battery** and set it to
+**Unrestricted**. Do the same for **Termux:Boot**.
 
-- **Unrestricted** (Samsung: "Unrestricted" in Battery settings)
-- Or: **Don't optimize** (stock Android: Settings → Battery → Battery
-  Optimization → Termux → Don't optimize)
+#### Stock Android / Pixel
 
-Do the same for **Termux:Boot** if installed.
+Settings > Battery > Battery Optimization > Termux > **Don't optimize**
 
-On Samsung devices, also:
+#### Samsung (OneUI)
 
-1. **Settings → Device Care → Battery → Background usage limits** — add Termux
-   to "Never sleeping apps"
-2. **Settings → Device Care → Battery → More battery settings** — turn OFF
-   "Adaptive battery" and "Put unused apps to sleep"
+1. Settings > Apps > Termux > Battery > **Unrestricted**
+2. Settings > Device Care > Battery > Background usage limits — add Termux
+   and Termux:Boot to **"Never sleeping apps"**
+3. Settings > Device Care > Battery > More battery settings:
+   - Turn **OFF** "Adaptive battery"
+   - Turn **OFF** "Put unused apps to sleep"
+
+#### Xiaomi / Redmi / POCO (MIUI)
+
+1. Settings > Apps > Manage apps > Termux > Battery saver > **No restrictions**
+2. Settings > Apps > Manage apps > Termux > **Autostart: ON**
+3. Security app > Battery > App battery saver > Termux > **No restrictions**
+
+#### Huawei (EMUI)
+
+1. Settings > Apps > Apps > Termux > Battery > **Enable: Allow background**
+2. Settings > Battery > App launch > Termux > **Manage manually** > enable all 3 toggles
+
+#### Motorola / Lenovo
+
+Settings > Battery > Adaptive Battery > **OFF** (or exclude Termux)
 
 ### 4c. Lock Termux in Recents
 
 Open the Android recent apps view, find Termux, and **lock it** (tap the lock
-icon or long press → Lock). This prevents Android from killing it when clearing
+icon or long press > Lock). This prevents Android from killing it when clearing
 recent apps.
 
-### 4d. Disable Doze for Termux (via ADB, optional but recommended)
+### 4d. Disable Doze for Termux (via ADB, recommended)
 
 If you have ADB access from a computer:
 
 ```bash
 adb shell dumpsys deviceidle whitelist +com.termux
+adb shell dumpsys deviceidle whitelist +com.termux.boot
 ```
 
 This exempts Termux from Android's Doze mode entirely.
+
+### 4e. Disable phantom process killing (Android 12+)
+
+Android 12+ limits background processes to 32. If you hit this limit, Android
+kills Termux silently. Disable it via ADB:
+
+```bash
+adb shell "settings put global settings_enable_monitor_phantom_procs false"
+# Or on some devices:
+adb shell "/system/bin/device_config set_sync_disabled_for_tests persistent"
+adb shell "/system/bin/device_config put activity_manager max_phantom_processes 2147483647"
+```
+
+### 4f. Notifications channel
+
+Make sure Termux notifications are set to **high priority** in Android settings.
+If Android hides the wakelock notification, it may kill the process.
 
 ---
 

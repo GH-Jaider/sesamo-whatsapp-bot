@@ -173,7 +173,7 @@ export function orderReceipt(
 }
 
 export function voucherReceived(orderId: number): string {
-  return `Comprobante recibido (Pedido #${orderId}). Estamos esperando confirmación de la chef... 👩‍🍳`;
+  return `Comprobante recibido (Orden #${orderId}). Estamos esperando confirmación de la chef... 👩‍🍳`;
 }
 
 export function voucherRequired(): string {
@@ -194,7 +194,7 @@ export function downloadError(): string {
 
 export function orderApproved(orderId: number): string {
   return (
-    `¡Pago confirmado! Tu pedido #${orderId} ya se está preparando. 🔥\n` +
+    `¡Pago confirmado! Tu orden #${orderId} ya se está preparando. 🔥\n` +
     `Te avisaremos cuando esté listo. ¡Gracias por elegir Sésamo!`
   );
 }
@@ -202,7 +202,7 @@ export function orderApproved(orderId: number): string {
 export function orderRejected(orderId: number): string {
   return (
     `Lo sentimos, hubo un problema con la validación de tu pago para el pedido #${orderId}.\n` +
-    `Por favor contáctanos para revisarlo.`
+    `Por favor contáctanos para revisarlo. 3143371953`
   );
 }
 

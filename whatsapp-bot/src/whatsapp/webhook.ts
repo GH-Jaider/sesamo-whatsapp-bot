@@ -1,8 +1,18 @@
 import { Hono } from 'hono';
+import { serveStatic } from '@hono/node-server/serve-static';
 import type { WebhookPayload, WebhookMessage, IncomingMessage } from '@/whatsapp/types';
 import { handleMessage } from '@/handlers/index';
 
 export const app = new Hono();
+
+// ---------------------------------------------------------------------------
+// Static pages — menu & privacy policy (served via Cloudflare tunnel)
+// ---------------------------------------------------------------------------
+
+app.use('/menu', serveStatic({ root: '..', path: 'sesamo-menu.html' }));
+app.use('/privacidad', serveStatic({ root: '..', path: 'politica-privacidad.html' }));
+app.use('/menu.pdf', serveStatic({ root: '..', path: 'sesamo-menu.pdf' }));
+app.use('/privacidad.pdf', serveStatic({ root: '..', path: 'politica-privacidad.pdf' }));
 
 // ---------------------------------------------------------------------------
 // GET /webhook — Meta hub challenge verification
