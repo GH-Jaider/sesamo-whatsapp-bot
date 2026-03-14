@@ -6,7 +6,7 @@ import { handleMessage } from '@/handlers/index';
 export const app = new Hono();
 
 // ---------------------------------------------------------------------------
-// Static pages — menu & privacy policy (served via Cloudflare tunnel)
+// Static pages — menu & privacy policy (served through the public tunnel)
 // ---------------------------------------------------------------------------
 
 app.use('/menu', serveStatic({ root: '..', path: 'sesamo-menu.html' }));

@@ -110,32 +110,41 @@ NEQUI_NUMBER="573143371953"              # <-- numero Nequi para pagos
 
 ---
 
-## 7. Exponer el bot con Cloudflare Tunnel
+## 7. Exponer el bot con ngrok
 
 Meta necesita una URL publica HTTPS para enviar mensajes al bot via webhook.
-Cloudflare Tunnel crea un tunel seguro desde internet hasta tu servidor local.
+ngrok crea un tunel seguro desde internet hasta tu servidor local.
 
-### Opcion A: Quick tunnel (para probar rapido)
+### Opcion A: Probar rapido con tu dominio fijo de ngrok
 
 ```bash
 # Primero arranca el bot:
 pnpm start
 
-# En otra terminal, crea un tunel temporal:
-cloudflared tunnel --url http://localhost:3000
+# Instala ngrok si aun no lo tienes:
+pkg install wget tar
+wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-arm64.tgz
+tar xvzf ngrok-v3-stable-linux-arm64.tgz
+mv ngrok $PREFIX/bin/ngrok
+
+# Agrega tu authtoken (solo una vez):
+ngrok config add-authtoken <TU_NGROK_AUTHTOKEN>
+
+# En otra terminal, abre el tunel con tu dominio fijo:
+ngrok http 3000 --url=sesamo-bot.ngrok-free.app
 ```
 
 Esto imprime algo como:
 ```
-https://random-words-here.trycloudflare.com
+Forwarding  https://sesamo-bot.ngrok-free.app -> http://localhost:3000
 ```
 
-Copia esa URL. Es temporal — cambia cada vez que lo corres.
+Ese dominio es permanente mientras siga reservado en tu cuenta de ngrok.
 
-### Opcion B: Tunnel permanente (para produccion)
+### Opcion B: Produccion en el telefono
 
-Ver la seccion de Cloudflare Tunnel en `deploy.md` para configurar un tunel
-con dominio fijo.
+Ver la seccion de ngrok en `deploy.md` para configurar el script de arranque,
+auto-reconexion y watchdog en Termux.
 
 ---
 
@@ -149,10 +158,10 @@ Este es el paso que conecta Meta con tu bot.
 2. En la seccion **Webhook**, click en **Edit**
 
 3. Llena los campos:
-   - **Callback URL**: `https://<tu-url-de-cloudflare>/webhook`
-     - Ejemplo: `https://random-words-here.trycloudflare.com/webhook`
+   - **Callback URL**: `https://<tu-dominio-ngrok>/webhook`
+     - Ejemplo: `https://sesamo-bot.ngrok-free.app/webhook`
    - **Verify Token**: el mismo string que pusiste en `WA_VERIFY_TOKEN` en tu `.env`
-     - Ejemplo: `sesamo-2026-secreto`
+      - Ejemplo: `sesamo-2026-secreto`
 
 4. Click en **Verify and Save**
    - Si tu bot esta corriendo y el tunnel esta activo, Meta va a hacer un
@@ -219,9 +228,9 @@ un **message template** aprobado por Meta.
    # Debe decir: "Server listening on port 3000"
    ```
 
-2. Asegurate de que el tunnel este activo (si usas quick tunnel):
+2. Asegurate de que el tunnel este activo:
    ```bash
-   cloudflared tunnel --url http://localhost:3000
+   ngrok http 3000 --url=sesamo-bot.ngrok-free.app
    ```
 
 3. Desde tu telefono, abre WhatsApp y envia **"hola"** al numero de prueba de Meta

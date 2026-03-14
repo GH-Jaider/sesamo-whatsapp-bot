@@ -83,104 +83,66 @@ Fill in the following:
 - **`ADMIN_PHONE`** — admin phone number (country code + number, no +)
 - **`NEQUI_NUMBER`** — Nequi number shown to customers for payment
 
-### Set up Cloudflare Tunnel (persistent URL)
+### Set up ngrok (persistent URL)
 
 The WhatsApp Cloud API sends messages to your bot via a webhook. The bot runs
 an HTTP server (default port 3000) that needs a publicly reachable HTTPS URL.
 
-**Cloudflare Tunnel** gives you a permanent HTTPS URL for free — no port
-forwarding, no public IP, no domain purchase required.
+**ngrok** gives you a permanent HTTPS dev domain on the free tier, so Meta's
+webhook URL stays the same across restarts, reboots, and WiFi drops.
 
-> **Important:** Do NOT use quick tunnels (`cloudflared tunnel --url ...`) in
-> production. The URL changes every time you restart. Use a **named tunnel**
-> instead — the URL stays the same forever.
+1. Create a free ngrok account at https://dashboard.ngrok.com/signup
 
-#### Option A: Free subdomain (no domain needed)
+2. In the ngrok dashboard, claim a free static dev domain.
 
-You can use Cloudflare's free tunnel with a `*.cfargotunnel.com` URL. This
-requires a free Cloudflare account but no domain.
+   It will look like:
 
-1. Install `cloudflared`:
+   ```
+   https://sesamo-bot.ngrok-free.app
+   ```
+
+3. Install ngrok on the phone:
 
    ```bash
-   # On Termux (aarch64):
-   pkg install wget
-   wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64
-   chmod +x cloudflared-linux-arm64
-   mv cloudflared-linux-arm64 $PREFIX/bin/cloudflared
+   pkg install wget tar
+   wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-arm64.tgz
+   tar xvzf ngrok-v3-stable-linux-arm64.tgz
+   mv ngrok $PREFIX/bin/ngrok
+   chmod +x $PREFIX/bin/ngrok
    ```
 
-2. Log in to Cloudflare (opens a browser):
+4. Add your authtoken from the ngrok dashboard:
 
    ```bash
-   cloudflared tunnel login
+   ngrok config add-authtoken <YOUR_NGROK_AUTHTOKEN>
    ```
 
-3. Create a named tunnel:
+5. Start the tunnel manually once to verify the domain works:
 
    ```bash
-   cloudflared tunnel create sesamo-bot
+   ngrok http 3000 --url=sesamo-bot.ngrok-free.app
    ```
 
-   This creates a tunnel ID and credentials file at
-   `~/.cloudflared/<TUNNEL_ID>.json`. **Save the tunnel ID** — you need it.
-
-4. Create the config file `~/.cloudflared/config.yml`:
-
-   ```yaml
-   tunnel: <TUNNEL_ID>
-   credentials-file: /data/data/com.termux/files/home/.cloudflared/<TUNNEL_ID>.json
-
-   ingress:
-     - service: http://localhost:3000
-   ```
-
-5. The tunnel URL will be `https://<TUNNEL_ID>.cfargotunnel.com`.
-
-#### Option B: Custom domain (recommended if you own one)
-
-If you own a domain on Cloudflare (even a cheap `.com` works):
-
-1. Follow steps 1-3 from Option A.
-
-2. Route a DNS record to the tunnel:
-
-   ```bash
-   cloudflared tunnel route dns sesamo-bot bot.yourdomain.com
-   ```
-
-3. Create `~/.cloudflared/config.yml`:
-
-   ```yaml
-   tunnel: sesamo-bot
-   credentials-file: /data/data/com.termux/files/home/.cloudflared/<TUNNEL_ID>.json
-
-   ingress:
-     - hostname: bot.yourdomain.com
-       service: http://localhost:3000
-     - service: http_status:404
-   ```
-
-4. Your tunnel URL is `https://bot.yourdomain.com`.
+   Replace `sesamo-bot.ngrok-free.app` with the dev domain you claimed.
 
 #### Verify the tunnel works
 
 ```bash
 # Start the tunnel
-cloudflared tunnel run sesamo-bot
+ngrok http 3000 --url=sesamo-bot.ngrok-free.app
 
 # In another terminal/tmux pane, start the bot
 pnpm start
 
 # Test from your computer
-curl https://<your-tunnel-url>/webhook
+curl https://sesamo-bot.ngrok-free.app/webhook
 ```
 
 ### Configure the Meta webhook
 
 1. Go to **Meta Dashboard > WhatsApp > Configuration**
 2. Set the **Callback URL** to your tunnel URL + `/webhook`
-   (e.g., `https://bot.yourdomain.com/webhook`)
+   (e.g., `https://sesamo-bot.ngrok-free.app/webhook`)
 3. Set the **Verify Token** to the same value as `WA_VERIFY_TOKEN` in your `.env`
 4. Subscribe to the **messages** webhook field
 
@@ -195,7 +157,7 @@ The bot also serves static pages at these URLs:
 | `/privacidad` | Privacy policy (HTML) — use this as the **Privacy Policy URL** in Meta app settings |
 | `/privacidad.pdf` | Privacy policy PDF |
 
-For example: `https://bot.yourdomain.com/privacidad`
+For example: `https://sesamo-bot.ngrok-free.app/privacidad`
 
 Set this URL in **Meta Developers > App Settings > Basic > Privacy Policy URL**.
 
@@ -308,8 +270,8 @@ If Android hides the wakelock notification, it may kill the process.
 
 ## 5. Run with Process Manager
 
-Use `tmux` to keep the process running after closing the terminal, plus a
-simple restart loop:
+Use `tmux` to keep the process running after closing the terminal, plus
+independent restart loops for the bot and the tunnel:
 
 ```bash
 pkg install tmux
@@ -325,14 +287,28 @@ termux-wake-lock
 
 cd ~/sesamo/whatsapp-bot
 
-# Start Cloudflare Tunnel in the background
-cloudflared tunnel run sesamo-bot &
-TUNNEL_PID=$!
+NGROK_DOMAIN="sesamo-bot.ngrok-free.app"
+
+tunnel_loop() {
+    while true; do
+        echo "[$(date)] Starting ngrok tunnel..."
+        ngrok http 3000 --url="$NGROK_DOMAIN"
+        EXIT_CODE=$?
+        echo "[$(date)] ngrok exited ($EXIT_CODE). Restarting in 5s..."
+        sleep 5
+    done
+}
+
+# Start ngrok tunnel supervisor in the background
+tunnel_loop &
+TUNNEL_LOOP_PID=$!
 
 cleanup() {
-    kill $TUNNEL_PID 2>/dev/null
-    wait $TUNNEL_PID 2>/dev/null
+    kill $TUNNEL_LOOP_PID 2>/dev/null
+    pkill -P $TUNNEL_LOOP_PID 2>/dev/null
+    wait $TUNNEL_LOOP_PID 2>/dev/null
 }
+
 trap cleanup EXIT
 
 while true; do
@@ -391,7 +367,7 @@ termux-wake-lock
 # Wait for network
 sleep 10
 
-# Start bot in a tmux session
+# Start the bot + tunnel supervisor script in a tmux session
 tmux new-session -d -s bot "bash ~/start-bot.sh"
 ```
 
@@ -408,7 +384,8 @@ Android registers it as a boot receiver.
 
 ## 7. Watchdog (extra safety)
 
-Use `cronie` (cron) to check every 5 minutes if the bot is still running:
+Use `cronie` (cron) to check every 5 minutes if both the bot and ngrok are
+still running:
 
 ```bash
 sv-enable crond
@@ -418,10 +395,11 @@ crontab -e
 Add this line:
 
 ```
-*/5 * * * * pgrep -f "pnpm start" > /dev/null || tmux new-session -d -s bot "bash ~/start-bot.sh"
+*/5 * * * * pgrep -f "pnpm start" > /dev/null && pgrep -f "ngrok http 3000" > /dev/null || { tmux has-session -t bot 2>/dev/null && tmux kill-session -t bot; tmux new-session -d -s bot "bash ~/start-bot.sh"; }
 ```
 
-This checks if the bot process exists; if not, it restarts it in tmux.
+This checks that both processes exist. If either one is missing, it restarts
+the whole tmux session so both come back cleanly.
 
 ---
 
@@ -474,7 +452,7 @@ free -m
 - [ ] Termux + Termux:Boot installed from F-Droid
 - [ ] Node.js, pnpm, git, tmux, cronie installed in Termux
 - [ ] Bot cloned, dependencies installed, `.env` configured with Cloud API credentials
-- [ ] Cloudflare Tunnel set up and pointing to `localhost:3000`
+- [ ] ngrok set up with a static dev domain pointing to `localhost:3000`
 - [ ] Meta webhook configured (callback URL + verify token + messages subscription)
 - [ ] `termux-wake-lock` acquired
 - [ ] Termux excluded from battery optimization
