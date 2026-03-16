@@ -1,0 +1,33 @@
+node_modules/
+dist/
+.git/
+.gitignore
+.env
+.env.*
+!.env.template
+
+# Data (persisted via Docker volume, not baked into image)
+whatsapp-bot/data/*.db
+whatsapp-bot/data/*.db-shm
+whatsapp-bot/data/*.db-wal
+whatsapp-bot/data/downloads/
+whatsapp-bot/data/auth_info_baileys/
+
+# OpenSpec docs (not needed at runtime)
+openspec/
+
+# Dev tooling
+.opencode/
+.eslintrc.json
+.prettierrc
+*.md
+!whatsapp-bot/deploy.md
+
+# PDF export tooling
+export-pdf.mjs
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
