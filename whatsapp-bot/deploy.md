@@ -456,18 +456,38 @@ Go to your repo → **Actions** tab to see the deployment running.
 3. Under **Webhook**, click **Edit**
 4. Set the **Callback URL** to:
    ```
-   http://YOUR_DROPLET_IP/webhook
+   https://45-55-172-5.sslip.io/webhook
    ```
-   (or `https://yourdomain.com/webhook` if you've set up a domain)
+   Meta usually requires a publicly reachable **HTTPS** URL. For this project,
+   use the temporary hostname `45-55-172-5.sslip.io`, which resolves to the
+   Droplet IP and allows Caddy to generate a valid TLS certificate.
 5. Set the **Verify token** to the same value as `WA_VERIFY_TOKEN` in your `.env`
 6. Click **Verify and Save**
 7. Make sure you're subscribed to the `messages` webhook field
 
+### Verify the webhook before entering it in Meta
+
+From your local machine or the Droplet, run:
+
+```bash
+curl "https://45-55-172-5.sslip.io/webhook?hub.mode=subscribe&hub.verify_token=YOUR_VERIFY_TOKEN&hub.challenge=test123"
+```
+
+If everything is correct, the response should be exactly:
+
+```
+test123
+```
+
+If you get `Forbidden`, the URL works but your verify token does not match.
+If you get a TLS or connection error, restart Caddy and check the logs.
+
 ---
 
-## 10. Add a domain and HTTPS (optional)
+## 10. Add a custom domain later (optional)
 
-When you have a domain name:
+The bot already works over HTTPS using `45-55-172-5.sslip.io`. When you buy a
+custom domain, you can replace that temporary hostname with your own.
 
 ### Point DNS to your Droplet
 
@@ -487,7 +507,7 @@ When you have a domain name:
    # Should show your Droplet's IP
    ```
 
-### Enable HTTPS in Caddy
+### Replace sslip.io with your real domain in Caddy
 
 Edit the `Caddyfile` on the server:
 
@@ -499,7 +519,7 @@ nano Caddyfile
 
 Change from:
 ```
-http://:80 {
+45-55-172-5.sslip.io {
     reverse_proxy bot:3000
 }
 ```
@@ -628,17 +648,23 @@ docker compose exec bot wget -qO- http://localhost:3000/webhook?hub.mode=subscri
 2. Make sure the `WA_VERIFY_TOKEN` in `.env` matches what you entered in Meta
 3. Test the endpoint manually:
    ```bash
-   curl "http://YOUR_DROPLET_IP/webhook?hub.mode=subscribe&hub.verify_token=YOUR_TOKEN&hub.challenge=test123"
+   curl "https://45-55-172-5.sslip.io/webhook?hub.mode=subscribe&hub.verify_token=YOUR_TOKEN&hub.challenge=test123"
    ```
    Should respond with `test123`
+4. If you get `Forbidden`, the verify token is wrong
+5. If you get a certificate or connection error, check `docker compose logs caddy`
 
-### HTTPS not working after adding domain
+### HTTPS not working with sslip.io or after adding a domain
 
 ```bash
 # Check Caddy logs for certificate errors
 docker compose logs caddy
 
 # Common causes:
+# - Port 80 or 443 blocked by firewall or DigitalOcean firewall
+# - Caddy was not restarted after changing the Caddyfile
+# - The bot container is down, so Caddy has nothing to proxy to
+# - Let's Encrypt rate limit from too many retries in a short time
 # - DNS not propagated yet (wait and retry)
 # - Firewall blocking port 443
 # - Domain not pointing to the Droplet IP

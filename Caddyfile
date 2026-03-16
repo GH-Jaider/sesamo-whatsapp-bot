@@ -1,14 +1,14 @@
 # Caddyfile — Reverse proxy for the WhatsApp bot
 #
-# HTTP-only mode (no domain yet):
-#   Uses bare port 80, no TLS.
+# Temporary public HTTPS hostname using sslip.io for the current Droplet IP.
+# sslip.io resolves 45-55-172-5.sslip.io -> 45.55.172.5, which lets Caddy
+# obtain a valid Let's Encrypt certificate even before buying a custom domain.
 #
-# To enable automatic HTTPS, replace "http://:80" with your domain:
+# Later, replace this hostname with your real domain, for example:
 #   bot.example.com {
 #       reverse_proxy bot:3000
 #   }
-# Caddy will automatically obtain and renew a Let's Encrypt certificate.
 
-http://:80 {
+45-55-172-5.sslip.io {
 	reverse_proxy bot:3000
 }
