@@ -7,13 +7,23 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      DROPLET_IP: ${{ secrets.DROPLET_IP }}
+      DROPLET_USER: ${{ secrets.DROPLET_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
     steps:
+      - name: Validate deploy secrets
+        run: |
+          test -n "$DROPLET_IP" || { echo "Missing GitHub secret: DROPLET_IP"; exit 1; }
+          test -n "$DROPLET_USER" || { echo "Missing GitHub secret: DROPLET_USER"; exit 1; }
+          test -n "$SSH_PRIVATE_KEY" || { echo "Missing GitHub secret: SSH_PRIVATE_KEY"; exit 1; }
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.DROPLET_IP }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          host: ${{ env.DROPLET_IP }}
+          username: ${{ env.DROPLET_USER }}
+          key: ${{ env.SSH_PRIVATE_KEY }}
           script: |
             cd ~/sesamo-restaurante
             git pull origin main
