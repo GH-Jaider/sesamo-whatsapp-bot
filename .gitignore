@@ -5,3 +5,5 @@ node_modules/
 whatsapp-bot/data/auth_info_baileys/
 whatsapp-bot/data/downloads/
 whatsapp-bot/data/*.db
+whatsapp-bot/dist/
+whatsapp-bot/deploy.md
