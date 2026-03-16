@@ -415,8 +415,8 @@ echo "PASTE_THE_PUBLIC_KEY_HERE" >> ~/.ssh/authorized_keys
 
 ### Add secrets to GitHub
 
-1. Go to your repo on GitHub → **Settings** → **Secrets and variables** → **Actions**
-2. Add these **Repository secrets**:
+1. Go to your repo on GitHub → **Settings** → **Environments** → `deploy`
+2. Add these **Environment secrets**:
 
    | Secret Name       | Value                                           |
    |-------------------|-------------------------------------------------|
@@ -431,9 +431,9 @@ echo "PASTE_THE_PUBLIC_KEY_HERE" >> ~/.ssh/authorized_keys
    Copy the **entire** output including `-----BEGIN OPENSSH PRIVATE KEY-----` and `-----END OPENSSH PRIVATE KEY-----`.
 
    If the GitHub Action fails with `error: missing server host`, it means
-   `DROPLET_IP` is missing, empty, or misspelled in GitHub repository secrets.
-   Verify the secret names match exactly: `DROPLET_IP`, `DROPLET_USER`,
-   `SSH_PRIVATE_KEY`.
+   `DROPLET_IP` is missing, empty, misspelled, or was saved outside the
+   `deploy` environment used by the workflow. Verify the secret names match
+   exactly: `DROPLET_IP`, `DROPLET_USER`, `SSH_PRIVATE_KEY`.
 
 ### Test the CI/CD
 
@@ -650,13 +650,13 @@ This error comes from `appleboy/ssh-action` when the `host` input is empty.
 
 Check these items in GitHub:
 
-1. Repository → **Settings** → **Secrets and variables** → **Actions**
-2. Confirm these secrets exist exactly with these names:
+1. Repository → **Settings** → **Environments** → `deploy`
+2. Confirm these environment secrets exist exactly with these names:
    - `DROPLET_IP`
    - `DROPLET_USER`
    - `SSH_PRIVATE_KEY`
 3. Confirm `DROPLET_IP` contains only the server IP, for example `164.90.10.20`
-4. If this is a private fork or another repo, make sure the secrets were added in that repo too
+4. If this is a private fork or another repo, make sure the secrets were added in that repo too, inside the same `deploy` environment
 5. Re-run the workflow after saving the secrets
 
 ### Out of disk space
