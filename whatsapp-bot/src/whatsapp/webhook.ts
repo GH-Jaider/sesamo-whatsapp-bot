@@ -6,6 +6,28 @@ import { handleMessage } from '@/handlers/index';
 export const app = new Hono();
 
 // ---------------------------------------------------------------------------
+// Message deduplication — prevent processing the same webhook twice
+// WhatsApp may re-deliver webhooks if the server was temporarily unreachable.
+// We keep a bounded set of recently-seen message IDs.
+// ---------------------------------------------------------------------------
+
+const SEEN_MESSAGES = new Set<string>();
+const MAX_SEEN = 1000;
+/** Max age in ms for a message timestamp to be considered fresh (2 minutes) */
+const MAX_MESSAGE_AGE_MS = 2 * 60 * 1000;
+
+function markSeen(messageId: string): boolean {
+  if (SEEN_MESSAGES.has(messageId)) return false; // already seen
+  SEEN_MESSAGES.add(messageId);
+  // Evict oldest entries when set grows too large
+  if (SEEN_MESSAGES.size > MAX_SEEN) {
+    const first = SEEN_MESSAGES.values().next().value;
+    if (first) SEEN_MESSAGES.delete(first);
+  }
+  return true; // first time seeing this message
+}
+
+// ---------------------------------------------------------------------------
 // Static pages — menu & privacy policy
 // In dev (ts-node from whatsapp-bot/): static files are at ../
 // In production (Docker):             static files are at ./static/
@@ -110,6 +132,24 @@ async function processWebhook(payload: WebhookPayload): Promise<void> {
       if (value.metadata.phone_number_id !== botPhoneId) continue;
 
       for (const msg of value.messages) {
+        // --- Deduplication: skip already-processed messages ---
+        if (msg.id && !markSeen(msg.id)) {
+          console.log(`[webhook] skipping duplicate message id=${msg.id}`);
+          continue;
+        }
+
+        // --- Skip stale messages (re-delivered after downtime) ---
+        if (msg.timestamp) {
+          const msgTime = parseInt(msg.timestamp, 10) * 1000; // WhatsApp sends Unix seconds
+          const age = Date.now() - msgTime;
+          if (age > MAX_MESSAGE_AGE_MS) {
+            console.log(
+              `[webhook] skipping stale message id=${msg.id} age=${Math.round(age / 1000)}s`,
+            );
+            continue;
+          }
+        }
+
         const parsed = parseMessage(msg);
         if (!parsed) continue;
 
