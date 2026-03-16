@@ -49,8 +49,11 @@ export function proteinPrompt(): string {
   return `El almuerzo incluye tu elección de proteína.\n¿Cuál prefieres?`;
 }
 
-export function addonPrompt(): string {
-  return `¿Te gustaría agregar algo a tu desayuno?`;
+export function addonPrompt(alreadyChosen?: string[]): string {
+  if (alreadyChosen && alreadyChosen.length > 0) {
+    return `Ya agregaste: ${alreadyChosen.join(', ')}.\n\n¿Quieres otro adicional?`;
+  }
+  return `¿Te gustaría agregar algo a tu pedido?`;
 }
 
 export function beveragePrompt(): string {
@@ -100,8 +103,12 @@ export function itemAddedToCart(itemName: string, quantity: number): string {
 // Delivery Mode & Scheduling
 // ---------------------------------------------------------------------------
 
-export function deliveryModePrompt(): string {
-  return `¿Cómo quieres recibir tu pedido?`;
+export function deliveryModePrompt(glampingSurcharge: number): string {
+  return `¿Cómo quieres recibir tu pedido?\n\n_Llevar al glamping tiene un recargo de ${formatPrice(glampingSurcharge)}._`;
+}
+
+export function orderDayPrompt(): string {
+  return `¿Para qué día necesitas el pedido?`;
 }
 
 export function orderTimePrompt(): string {
@@ -119,8 +126,9 @@ export function deliveryModeLabel(mode: DeliveryMode): string {
 export function orderSummaryCompact(
   items: CartItem[],
   deliveryMode: DeliveryMode,
-  scheduledTime: string,
+  schedule: string,
   notes: string,
+  glampingSurcharge: number,
 ): string {
   const lines = items.map((item) => {
     const optionsStr =
@@ -131,8 +139,11 @@ export function orderSummaryCompact(
   const parts = [
     ...lines,
     `Modalidad: ${deliveryModeLabel(deliveryMode)}`,
-    `Hora: ${scheduledTime || 'Lo antes posible'}`,
   ];
+  if (deliveryMode === 'delivery') {
+    parts.push(`Recargo domicilio: ${formatPrice(glampingSurcharge)}`);
+  }
+  parts.push(`Hora: ${schedule || 'Lo antes posible'}`);
   if (notes) {
     parts.push(`Notas: ${notes}`);
   }
@@ -150,11 +161,13 @@ export function notesPrompt(): string {
 export function orderReceipt(
   items: CartItem[],
   notes: string,
+  subtotal: number,
   total: number,
   advance: number,
   nequiNumber: string,
   deliveryMode: DeliveryMode,
-  scheduledTime: string,
+  schedule: string,
+  glampingSurcharge: number,
 ): string {
   let text = `*Resumen de tu pedido:*\n\n`;
   for (const item of items) {
@@ -164,8 +177,14 @@ export function orderReceipt(
     text += `• ${item.quantity}x ${item.name}${optionsStr} — ${formatPrice(lineTotal)}\n`;
   }
   text += `\n*Modalidad:* ${deliveryModeLabel(deliveryMode)}\n`;
-  text += `*Hora:* ${scheduledTime || 'Lo antes posible'}\n`;
+  if (deliveryMode === 'delivery') {
+    text += `*Recargo domicilio:* ${formatPrice(glampingSurcharge)}\n`;
+  }
+  text += `*Hora:* ${schedule || 'Lo antes posible'}\n`;
   text += `*Notas:* ${notes || 'Ninguna'}\n`;
+  if (deliveryMode === 'delivery') {
+    text += `*Subtotal:* ${formatPrice(subtotal)}\n`;
+  }
   text += `*Total:* ${formatPrice(total)}\n`;
   text += `*Anticipo (50%):* ${formatPrice(advance)}\n\n`;
   text += `Transfiere el anticipo por Nequi al *${nequiNumber}* y envía la captura de pantalla por aquí para confirmar tu pedido.`;
@@ -254,12 +273,16 @@ export function adminNewOrder(
   total: number,
   advance: number,
   deliveryMode: DeliveryMode,
-  scheduledTime: string,
+  schedule: string,
+  glampingSurcharge: number,
 ): string {
   let text = `*Nuevo Pedido #${orderId}*\n\n`;
   text += `*Teléfono:* ${phone}\n`;
   text += `*Modalidad:* ${deliveryModeLabel(deliveryMode)}\n`;
-  text += `*Hora:* ${scheduledTime || 'Lo antes posible'}\n\n`;
+  if (deliveryMode === 'delivery') {
+    text += `*Recargo domicilio:* ${formatPrice(glampingSurcharge)}\n`;
+  }
+  text += `*Hora:* ${schedule || 'Lo antes posible'}\n\n`;
   for (const item of items) {
     const optionsStr =
       item.options.length > 0 ? ` (${item.options.map((o) => o.name).join(', ')})` : '';
@@ -269,7 +292,7 @@ export function adminNewOrder(
   text += `\n*Notas:* ${notes || 'Ninguna'}\n`;
   text += `*Total:* ${formatPrice(total)}\n`;
   text += `*Anticipo (50%):* ${formatPrice(advance)}\n\n`;
-  text += `Responde cualquier mensaje para ver el comprobante de pago.`;
+  text += `Escribe *Ok* para ver el comprobante.`;
   return text;
 }
 

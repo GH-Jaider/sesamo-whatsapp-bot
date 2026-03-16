@@ -55,6 +55,8 @@ export interface OrderItem {
 export interface CartItemOption {
   name: string;
   price: number;
+  /** True for add-ons (e.g. Caldo de Costilla) vs included options (e.g. protein choice) */
+  isAddon?: boolean;
 }
 
 export interface CartItem {
@@ -84,6 +86,8 @@ export interface CartData {
   selectedCategoryId?: number;
   /** Whether the customer eats at Sésamo or wants delivery to their glamping */
   deliveryMode?: DeliveryMode;
+  /** Day the customer wants the order (e.g. "Hoy", "Mañana", free text) */
+  scheduledDay?: string;
   /** Free-text time the customer wants the order (e.g. "2:30 pm", "a las 3") */
   scheduledTime?: string;
   /** Special instructions for the kitchen */

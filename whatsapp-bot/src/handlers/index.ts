@@ -27,6 +27,9 @@ import path from 'path';
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Flat delivery surcharge for glamping orders (COP) */
+const GLAMPING_SURCHARGE = 10000;
+
 function getCartData(cartJson: string | null): CartData {
   if (!cartJson) return { items: [] };
   try {
@@ -41,6 +44,21 @@ function calcSubtotal(items: CartItem[]): number {
     const optPrice = item.options.reduce((s, o) => s + o.price, 0);
     return sum + (item.price + optPrice) * item.quantity;
   }, 0);
+}
+
+/** Calculate order total including delivery surcharge */
+function calcTotal(items: CartItem[], deliveryMode: DeliveryMode): number {
+  const subtotal = calcSubtotal(items);
+  return deliveryMode === 'delivery' ? subtotal + GLAMPING_SURCHARGE : subtotal;
+}
+
+/** Build a combined schedule string from day + time */
+function formatSchedule(day?: string, time?: string): string {
+  const d = day || '';
+  const t = time || '';
+  if (!d && !t) return '';
+  if (d && t) return `${d}, ${t}`;
+  return d || t;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +174,8 @@ export const handleMessage = async (phone: string, userMessage: string, mediaId?
         return handleCartConfirm(phone, userMessage);
       case 'CHOOSE_DELIVERY_MODE':
         return handleDeliveryMode(phone, userMessage);
+      case 'CHOOSE_ORDER_DAY':
+        return handleOrderDay(phone, userMessage);
       case 'CHOOSE_ORDER_TIME':
         return handleOrderTime(phone, userMessage);
       case 'NOTES':
@@ -427,6 +447,29 @@ async function handleChooseProtein(phone: string, text: string) {
   }
 }
 
+/** Helper: route from CHOOSE_ADDONS to next step (more addons or quantity) */
+async function routeAfterAddon(phone: string, cart: CartData) {
+  const menuItemId = cart.pendingItem?.menuItemId ?? 0;
+  const alreadyChosen = (cart.pendingItem?.options ?? [])
+    .filter((o) => o.isAddon)
+    .map((o) => o.name);
+
+  const remaining = dbAll<ItemOption>(
+    "SELECT * FROM item_options WHERE menu_item_id = ? AND option_group = 'adicional' AND available = 1 ORDER BY display_order",
+    [menuItemId],
+  ).filter((a) => !alreadyChosen.includes(a.name));
+
+  if (remaining.length > 0) {
+    // Still more add-ons available — let the user pick another or skip
+    updateUserState(phone, 'CHOOSE_ADDONS', cart);
+    await showAddonsPrompt(phone, remaining, alreadyChosen);
+  } else {
+    // No more add-ons available — go to quantity
+    updateUserState(phone, 'CHOOSE_QUANTITY', cart);
+    await sendQuantityPrompt(phone, cart.pendingItem?.name ?? 'ítem');
+  }
+}
+
 async function handleChooseBeverage(phone: string, text: string) {
   const parsed = parseCommand(text);
   const normalized = normalizeInput(text);
@@ -475,7 +518,7 @@ async function handleChooseBeverage(phone: string, text: string) {
   }
 }
 
-async function showAddonsPrompt(phone: string, addons: ItemOption[]) {
+async function showAddonsPrompt(phone: string, addons: ItemOption[], alreadyChosen?: string[]) {
   // Always use a list — button text (20 char limit) truncates addon names + prices
   const rows = [
     ...addons.map((a) => ({
@@ -485,7 +528,7 @@ async function showAddonsPrompt(phone: string, addons: ItemOption[]) {
     })),
     { title: 'Sin adicionales', rowId: 'skip', description: 'Continuar sin adicionales' },
   ];
-  await sendList(phone, msg.addonPrompt(), 'Ver opciones', [{ title: 'Adicionales', rows }]);
+  await sendList(phone, msg.addonPrompt(alreadyChosen), 'Ver opciones', [{ title: 'Adicionales', rows }]);
 }
 
 async function handleChooseAddons(phone: string, text: string) {
@@ -518,18 +561,13 @@ async function handleChooseAddons(phone: string, text: string) {
     return;
   }
 
-  // Add the add-on as a separate cart item
-  cart.items.push({
-    menuItemId: addon.menu_item_id,
-    name: addon.name,
-    price: addon.price,
-    quantity: 1,
-    options: [],
-  });
+  // Add add-on as an option on the pending item so it multiplies with quantity
+  if (cart.pendingItem) {
+    cart.pendingItem.options.push({ name: addon.name, price: addon.price, isAddon: true });
+  }
 
-  // Go to quantity for the base item
-  updateUserState(phone, 'CHOOSE_QUANTITY', cart);
-  await sendQuantityPrompt(phone, cart.pendingItem?.name ?? 'ítem');
+  // Check if there are more add-ons to offer, or proceed to quantity
+  await routeAfterAddon(phone, cart);
 }
 
 // ---------------------------------------------------------------------------
@@ -610,7 +648,7 @@ async function handleCartConfirm(phone: string, text: string) {
     const st = getUserState(phone)!;
     const cartData = getCartData(st.cart_data);
     updateUserState(phone, 'CHOOSE_DELIVERY_MODE', cartData);
-    await sendButtons(phone, msg.deliveryModePrompt(), [
+    await sendButtons(phone, msg.deliveryModePrompt(GLAMPING_SURCHARGE), [
       { buttonId: 'dine_in', buttonText: 'Comer en Sésamo' },
       { buttonId: 'delivery', buttonText: 'Llevar al glamping' },
     ]);
@@ -662,6 +700,31 @@ async function handleDeliveryMode(phone: string, text: string) {
     return;
   }
 
+  updateUserState(phone, 'CHOOSE_ORDER_DAY', cart);
+  await sendButtons(phone, msg.orderDayPrompt(), [
+    { buttonId: 'today', buttonText: 'Hoy' },
+    { buttonId: 'tomorrow', buttonText: 'Mañana' },
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Customer: Order Day
+// ---------------------------------------------------------------------------
+
+async function handleOrderDay(phone: string, text: string) {
+  const normalized = normalizeInput(text);
+  const state = getUserState(phone)!;
+  const cart = getCartData(state.cart_data);
+
+  if (normalized === 'today' || normalized === 'hoy') {
+    cart.scheduledDay = 'Hoy';
+  } else if (normalized === 'tomorrow' || normalized === 'manana' || normalized === 'mañana') {
+    cart.scheduledDay = 'Mañana';
+  } else {
+    // Accept free text (e.g. "el sábado", "23 de marzo")
+    cart.scheduledDay = text.trim();
+  }
+
   updateUserState(phone, 'CHOOSE_ORDER_TIME', cart);
   await sendButtons(phone, msg.orderTimePrompt(), [
     { buttonId: 'asap', buttonText: 'Lo antes posible' },
@@ -706,11 +769,12 @@ async function handleNotes(phone: string, text: string) {
     normalized === 'sin comentarios'
       ? ''
       : text.trim();
-  const total = calcSubtotal(cart.items);
+  const deliveryMode: DeliveryMode = cart.deliveryMode ?? 'dine_in';
+  const subtotal = calcSubtotal(cart.items);
+  const total = calcTotal(cart.items, deliveryMode);
   const advance = Math.ceil(total / 2);
   const nequi = process.env.NEQUI_NUMBER || 'No configurado';
-  const deliveryMode: DeliveryMode = cart.deliveryMode ?? 'dine_in';
-  const scheduledTime = cart.scheduledTime ?? '';
+  const schedule = formatSchedule(cart.scheduledDay, cart.scheduledTime);
 
   // Store notes in cart for later
   cart.notes = notes;
@@ -718,7 +782,7 @@ async function handleNotes(phone: string, text: string) {
 
   await sendText(
     phone,
-    msg.orderReceipt(cart.items, notes, total, advance, nequi, deliveryMode, scheduledTime),
+    msg.orderReceipt(cart.items, notes, subtotal, total, advance, nequi, deliveryMode, schedule, GLAMPING_SURCHARGE),
   );
 }
 
@@ -745,15 +809,15 @@ async function handlePayment(phone: string, mediaId: string | undefined) {
   const state = getUserState(phone)!;
   const cart = getCartData(state.cart_data);
   const notes = cart.notes ?? '';
-  const total = calcSubtotal(cart.items);
-  const advance = Math.ceil(total / 2);
   const deliveryMode: DeliveryMode = cart.deliveryMode ?? 'dine_in';
-  const scheduledTime = cart.scheduledTime ?? '';
+  const total = calcTotal(cart.items, deliveryMode);
+  const advance = Math.ceil(total / 2);
+  const schedule = formatSchedule(cart.scheduledDay, cart.scheduledTime);
 
   // Save order (include voucher path for later retrieval when admin replies)
   const result = dbRun(
     'INSERT INTO orders (customer_phone, total, status, notes, advance_paid, delivery_mode, scheduled_time, voucher_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    [phone, total, 'PENDING', notes, advance, deliveryMode, scheduledTime || null, filePath],
+    [phone, total, 'PENDING', notes, advance, deliveryMode, schedule || null, filePath],
   );
   const orderId = result.lastInsertRowid;
 
@@ -780,7 +844,7 @@ async function handlePayment(phone: string, mediaId: string | undefined) {
   const adminPhone = process.env.ADMIN_PHONE;
   console.log(`[handlePayment] forwarding to admin=${adminPhone} orderId=${orderId}`);
   if (adminPhone) {
-    const summary = msg.orderSummaryCompact(cart.items, deliveryMode, scheduledTime, notes);
+    const summary = msg.orderSummaryCompact(cart.items, deliveryMode, schedule, notes, GLAMPING_SURCHARGE);
     const templateSent = await sendTemplate(adminPhone, 'pedido_detalle', 'es', [
       String(orderId),
       phone,
@@ -799,7 +863,8 @@ async function handlePayment(phone: string, mediaId: string | undefined) {
         total,
         advance,
         deliveryMode,
-        scheduledTime,
+        schedule,
+        GLAMPING_SURCHARGE,
       );
       await sendText(adminPhone, adminText);
     }

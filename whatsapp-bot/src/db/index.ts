@@ -205,7 +205,29 @@ export const initDb = async () => {
   `);
 
   seedDb();
+  migrateData();
   saveDb();
+};
+
+/** Idempotent data migrations for existing databases. */
+const migrateData = () => {
+  // 2026-03-16: Add "Crema de Trucha" addon to almuerzo if missing
+  const almuerzo = dbGet<{ id: number }>(
+    "SELECT id FROM menu_items WHERE name = 'Menú de la Casa' AND category_id = 2",
+  );
+  if (almuerzo) {
+    const exists = dbGet<{ id: number }>(
+      "SELECT id FROM item_options WHERE menu_item_id = ? AND name = 'Crema de Trucha'",
+      [almuerzo.id],
+    );
+    if (!exists) {
+      dbRun(
+        'INSERT INTO item_options (menu_item_id, option_group, name, price, display_order) VALUES (?, ?, ?, ?, ?)',
+        [almuerzo.id, 'adicional', 'Crema de Trucha', 20000, 1],
+      );
+      console.log('[migrate] Added "Crema de Trucha" addon to almuerzo');
+    }
+  }
 };
 
 const seedDb = () => {
@@ -378,6 +400,12 @@ const seedDb = () => {
       [almuerzoId, 'proteina', p, 0, i + 1],
     );
   });
+
+  // Almuerzo add-ons
+  dbRun(
+    'INSERT INTO item_options (menu_item_id, option_group, name, price, display_order) VALUES (?, ?, ?, ?, ?)',
+    [almuerzoId, 'adicional', 'Crema de Trucha', 20000, 1],
+  );
 
   // Desayuno options (menu_item_id for the desayuno)
   const desayunoId = dbGet<{ id: number }>(
