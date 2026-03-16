@@ -1,464 +1,663 @@
-# Deploying Sésamo WhatsApp Bot on an Android Phone
+# Deploying Sésamo WhatsApp Bot on DigitalOcean
 
-Guide to run the bot 24/7 on an old Android phone using Termux.
+Complete step-by-step guide to deploy the bot on a DigitalOcean Droplet with
+Docker Compose, Caddy reverse proxy, and automated GitHub Actions deployments.
 
-The bot uses the **WhatsApp Cloud API** (official Meta API), so there's no QR
-scanning or Baileys sessions. You just need API credentials from Meta and a
-publicly reachable webhook URL.
-
-The same server also hosts the restaurant's menu and privacy policy pages.
-
-Based on: https://dev.to/quave/hosting-web-app-on-your-old-android-phone-54bg
+**Cost**: ~$6/month (1 vCPU, 1GB RAM Droplet)
 
 ---
 
-## 1. Install Termux
+## Table of Contents
 
-Install **Termux** from F-Droid (recommended) or Play Store.
-
-> **Important:** The F-Droid version is more up-to-date and has fewer
-> restrictions. The Play Store version is deprecated and may not work.
->
-> Download: https://f-droid.org/en/packages/com.termux/
-
-Also install **Termux:Boot** from F-Droid — this is needed to auto-start the
-bot after a phone reboot:
-
-> https://f-droid.org/en/packages/com.termux.boot/
-
----
-
-## 2. Initial Setup in Termux
-
-Open Termux and run:
-
-```bash
-pkg update && pkg upgrade -y
-pkg install openssh nodejs-lts git pnpm cronie termux-services -y
-```
-
-### Set up SSH (optional but recommended)
-
-So you can work from your computer instead of the phone keyboard:
-
-```bash
-sshd
-whoami     # remember this username
-ifconfig   # note the IP address (wlan0 -> inet)
-passwd     # set a password
-```
-
-From your computer:
-
-```bash
-ssh <username>@<phone_ip> -p 8022
-```
-
-Termux SSH runs on port **8022** by default, not 22.
+1. [Create the Droplet](#1-create-the-droplet)
+2. [Initial server setup](#2-initial-server-setup)
+3. [Install Docker](#3-install-docker)
+4. [Configure firewall](#4-configure-firewall)
+5. [Server hardening](#5-server-hardening)
+6. [Clone the repo and configure](#6-clone-the-repo-and-configure)
+7. [First deployment](#7-first-deployment)
+8. [Set up GitHub Actions CI/CD](#8-set-up-github-actions-cicd)
+9. [Update Meta webhook URL](#9-update-meta-webhook-url)
+10. [Add a domain and HTTPS (optional)](#10-add-a-domain-and-https-optional)
+11. [Common operations](#11-common-operations)
+12. [Troubleshooting](#12-troubleshooting)
 
 ---
 
-## 3. Clone and Install the Bot
+## 1. Create the Droplet
+
+1. Log in to [DigitalOcean](https://cloud.digitalocean.com/)
+2. Click **Create** → **Droplets**
+3. Choose these settings:
+
+   | Setting       | Value                                      |
+   |---------------|--------------------------------------------|
+   | Region        | **NYC1** or **SFO3** (closest to Colombia) |
+   | Image         | **Ubuntu 24.04 LTS**                       |
+   | Size          | **Basic → Regular → $6/mo** (1 vCPU, 1GB RAM, 25GB SSD) |
+   | Auth method   | **SSH key** (recommended) or password      |
+   | Hostname      | `sesamo-bot`                               |
+
+4. If using SSH key auth:
+   - On your **local machine**, generate a key if you don't have one:
+     ```bash
+     ssh-keygen -t ed25519 -C "sesamo-droplet"
+     ```
+   - Copy the public key:
+     ```bash
+     cat ~/.ssh/id_ed25519.pub
+     ```
+   - Paste it in the DigitalOcean "SSH Keys" section during Droplet creation
+
+5. Click **Create Droplet** and note the **IP address** (e.g., `164.90.XXX.XXX`)
+
+---
+
+## 2. Initial server setup
+
+SSH into your new Droplet:
 
 ```bash
+ssh root@YOUR_DROPLET_IP
+```
+
+### Create a deploy user (don't run everything as root)
+
+```bash
+# Create user
+adduser --disabled-password --gecos "" deploy
+
+# Give sudo access
+usermod -aG sudo deploy
+
+# Allow sudo without password (for automated deploys)
+echo "deploy ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/deploy
+
+# Copy SSH keys so you can log in as deploy
+mkdir -p /home/deploy/.ssh
+cp /root/.ssh/authorized_keys /home/deploy/.ssh/
+chown -R deploy:deploy /home/deploy/.ssh
+chmod 700 /home/deploy/.ssh
+chmod 600 /home/deploy/.ssh/authorized_keys
+```
+
+### Test login as deploy user
+
+Open a **new terminal** (keep root session open as backup):
+
+```bash
+ssh deploy@YOUR_DROPLET_IP
+```
+
+If this works, you're good. From now on, always use the `deploy` user.
+
+---
+
+## 3. Install Docker
+
+Run these commands as the `deploy` user:
+
+```bash
+# Install Docker using the official convenience script
+curl -fsSL https://get.docker.com | sudo sh
+
+# Add deploy user to docker group (no sudo needed for docker commands)
+sudo usermod -aG docker deploy
+
+# Apply group change (or log out and back in)
+newgrp docker
+
+# Verify Docker works
+docker run hello-world
+
+# Verify Docker Compose is available (included with Docker Engine)
+docker compose version
+```
+
+---
+
+## 4. Configure firewall
+
+```bash
+# Allow SSH (so you don't lock yourself out!)
+sudo ufw allow OpenSSH
+
+# Allow HTTP and HTTPS for the bot
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+
+# Enable the firewall
+sudo ufw enable
+
+# Verify rules
+sudo ufw status
+```
+
+Expected output:
+```
+Status: active
+
+To                         Action      From
+--                         ------      ----
+OpenSSH                    ALLOW       Anywhere
+80/tcp                     ALLOW       Anywhere
+443/tcp                    ALLOW       Anywhere
+```
+
+---
+
+## 5. Server hardening
+
+These steps protect the Droplet from common attacks. Run everything as the
+`deploy` user (with sudo) unless noted otherwise.
+
+### Disable root SSH login
+
+Now that you have the `deploy` user working, disable root login entirely:
+
+```bash
+sudo sed -i 's/^PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+sudo sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+```
+
+Also disable password authentication (SSH key only):
+
+```bash
+sudo sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+sudo sed -i 's/^PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+```
+
+Restart SSH to apply:
+
+```bash
+sudo systemctl restart sshd
+```
+
+> **Before closing your current session**, open a **new terminal** and verify
+> you can still log in as `deploy`:
+> ```bash
+> ssh deploy@YOUR_DROPLET_IP
+> ```
+> If this fails, go back to the original session and undo the changes.
+
+### Install fail2ban (brute-force protection)
+
+fail2ban automatically bans IPs that show malicious signs (e.g., too many
+failed SSH login attempts):
+
+```bash
+sudo apt update && sudo apt install -y fail2ban
+```
+
+Create a local config (so updates don't overwrite your settings):
+
+```bash
+sudo tee /etc/fail2ban/jail.local > /dev/null << 'EOF'
+[DEFAULT]
+# Ban for 1 hour after 5 failures within 10 minutes
+bantime  = 3600
+findtime = 600
+maxretry = 5
+# Use UFW for banning
+banaction = ufw
+
+[sshd]
+enabled = true
+port    = ssh
+filter  = sshd
+logpath = /var/log/auth.log
+maxretry = 3
+EOF
+```
+
+Start and enable:
+
+```bash
+sudo systemctl enable fail2ban
+sudo systemctl start fail2ban
+
+# Verify it's running and monitoring SSH
+sudo fail2ban-client status sshd
+```
+
+### Enable automatic security updates
+
+This ensures critical security patches are applied automatically without
+manual intervention:
+
+```bash
+sudo apt install -y unattended-upgrades
+sudo dpkg-reconfigure -plow unattended-upgrades
+```
+
+Select **Yes** when prompted. Then verify it's configured:
+
+```bash
+# Check that security updates are enabled
+cat /etc/apt/apt.conf.d/20auto-upgrades
+```
+
+Expected output:
+```
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+```
+
+Optionally enable auto-reboot for kernel updates (reboots at 4 AM if needed):
+
+```bash
+sudo tee -a /etc/apt/apt.conf.d/50unattended-upgrades > /dev/null << 'EOF'
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "04:00";
+EOF
+```
+
+### Set up swap space (for the 1GB RAM Droplet)
+
+With only 1GB RAM, a swap file prevents out-of-memory kills during Docker
+builds:
+
+```bash
+# Create a 1GB swap file
+sudo fallocate -l 1G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+
+# Make it permanent across reboots
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# Set swappiness low (only swap when truly needed)
+echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+
+# Verify
+free -h
+```
+
+### Harden shared memory
+
+Prevent certain exploits that abuse shared memory:
+
+```bash
+echo 'tmpfs /run/shm tmpfs defaults,noexec,nosuid 0 0' | sudo tee -a /etc/fstab
+```
+
+### Summary of what's now protected
+
+| Threat                    | Protection                                |
+|---------------------------|-------------------------------------------|
+| SSH brute-force attacks   | fail2ban (bans after 3 failed attempts)   |
+| Root login via SSH        | Disabled — only `deploy` user with SSH key |
+| Password guessing         | Password auth disabled — SSH keys only    |
+| Unpatched vulnerabilities | Automatic security updates                |
+| Out-of-memory crashes     | 1GB swap file                             |
+| Shared memory exploits    | noexec/nosuid on /run/shm                 |
+| Unauthorized ports        | UFW firewall (only 22, 80, 443)           |
+
+---
+
+## 6. Clone the repo and configure
+
+```bash
+# Clone the repository
 cd ~
-git clone <your-repo-url> sesamo
-cd sesamo/whatsapp-bot
-pnpm install
+git clone https://github.com/GH-Jaider/sesamo-whatsapp-bot.git sesamo-restaurante
+cd sesamo-restaurante
 ```
 
-### Configure environment variables
+### Create the .env file
 
 ```bash
-cp .env.template .env
-nano .env
+cp whatsapp-bot/.env.template whatsapp-bot/.env
+nano whatsapp-bot/.env
 ```
 
-Fill in the following:
+Fill in your values:
 
-- **`WA_PHONE_NUMBER_ID`** — from Meta Dashboard > WhatsApp > API Setup
-- **`WA_ACCESS_TOKEN`** — permanent token from Meta Business Settings > System Users
-- **`WA_VERIFY_TOKEN`** — any string you choose (must match your Meta webhook config)
-- **`WA_APP_SECRET`** — from Meta Dashboard > App Settings > Basic (optional)
-- **`ADMIN_PHONE`** — admin phone number (country code + number, no +)
-- **`NEQUI_NUMBER`** — Nequi number shown to customers for payment
+```env
+# --- WhatsApp Cloud API ---
+WA_PHONE_NUMBER_ID="YOUR_PHONE_NUMBER_ID"
+WA_ACCESS_TOKEN="YOUR_ACCESS_TOKEN"
+WA_VERIFY_TOKEN="YOUR_VERIFY_TOKEN"
+WA_APP_SECRET=""
 
-### Set up ngrok (persistent URL)
+# --- Bot Config ---
+ADMIN_PHONE="573001234567"
+NEQUI_NUMBER="3001234567"
 
-The WhatsApp Cloud API sends messages to your bot via a webhook. The bot runs
-an HTTP server (default port 3000) that needs a publicly reachable HTTPS URL.
-
-**ngrok** gives you a permanent HTTPS dev domain on the free tier, so Meta's
-webhook URL stays the same across restarts, reboots, and WiFi drops.
-
-1. Create a free ngrok account at https://dashboard.ngrok.com/signup
-
-2. In the ngrok dashboard, claim a free static dev domain.
-
-   It will look like:
-
-   ```
-   https://sesamo-bot.ngrok-free.app
-   ```
-
-3. Install ngrok on the phone:
-
-   ```bash
-   pkg install wget tar
-   wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-arm64.tgz
-   tar xvzf ngrok-v3-stable-linux-arm64.tgz
-   mv ngrok $PREFIX/bin/ngrok
-   chmod +x $PREFIX/bin/ngrok
-   ```
-
-4. Add your authtoken from the ngrok dashboard:
-
-   ```bash
-   ngrok config add-authtoken <YOUR_NGROK_AUTHTOKEN>
-   ```
-
-5. Start the tunnel manually once to verify the domain works:
-
-   ```bash
-   ngrok http 3000 --url=sesamo-bot.ngrok-free.app
-   ```
-
-   Replace `sesamo-bot.ngrok-free.app` with the dev domain you claimed.
-
-#### Verify the tunnel works
-
-```bash
-# Start the tunnel
-ngrok http 3000 --url=sesamo-bot.ngrok-free.app
-
-# In another terminal/tmux pane, start the bot
-pnpm start
-
-# Test from your computer
-curl https://sesamo-bot.ngrok-free.app/webhook
+# --- Server ---
+PORT="3000"
+NODE_ENV="production"
+LOG_LEVEL="info"
 ```
 
-### Configure the Meta webhook
-
-1. Go to **Meta Dashboard > WhatsApp > Configuration**
-2. Set the **Callback URL** to your tunnel URL + `/webhook`
-   (e.g., `https://sesamo-bot.ngrok-free.app/webhook`)
-3. Set the **Verify Token** to the same value as `WA_VERIFY_TOKEN` in your `.env`
-4. Subscribe to the **messages** webhook field
-
-### Public pages served by the bot
-
-The bot also serves static pages at these URLs:
-
-| URL | Content |
-|---|---|
-| `/menu` | Restaurant menu (HTML) |
-| `/menu.pdf` | Menu PDF |
-| `/privacidad` | Privacy policy (HTML) — use this as the **Privacy Policy URL** in Meta app settings |
-| `/privacidad.pdf` | Privacy policy PDF |
-
-For example: `https://sesamo-bot.ngrok-free.app/privacidad`
-
-Set this URL in **Meta Developers > App Settings > Basic > Privacy Policy URL**.
-
-### First run — verify everything works
-
-```bash
-pnpm start
-```
-
-You should see `Server listening on port 3000`. The webhook is ready to receive
-messages — send a message to your WhatsApp Business number from any phone to
-test.
+> **Where to find these values**: See `meta-setup.md` for step-by-step
+> instructions on getting your WhatsApp Cloud API credentials from the Meta
+> Developer Console.
 
 ---
 
-## 4. Keep the Bot Alive (CRITICAL)
-
-Android aggressively kills background processes to save battery. Without these
-steps, Termux will be killed within minutes of locking the screen. **Do ALL of
-these steps — each one matters.**
-
-> Reference: https://dontkillmyapp.com/
-
-### 4a. Acquire a Wake Lock
-
-This is the single most important step. In Termux, run:
+## 7. First deployment
 
 ```bash
-termux-wake-lock
+cd ~/sesamo-restaurante
+
+# Build and start the containers
+docker compose up --build -d
 ```
 
-This acquires a partial wake lock that prevents Android from putting Termux to
-sleep. You'll see a persistent notification from Termux saying "Acquiring
-wakelock". **Do not dismiss it.**
+This will:
+1. Build the bot image (compile TypeScript, install production deps)
+2. Start the Caddy reverse proxy on ports 80/443
+3. Start the bot on port 3000 (internal, proxied through Caddy)
 
-To release it later (you normally don't want to):
+### Verify it's running
 
 ```bash
-termux-wake-unlock
+# Check container status
+docker compose ps
+
+# Check bot logs
+docker compose logs bot
+
+# Check caddy logs
+docker compose logs caddy
+
+# Test the webhook endpoint
+curl http://localhost/webhook?hub.mode=subscribe\&hub.verify_token=YOUR_VERIFY_TOKEN\&hub.challenge=test123
+# Should respond: test123
 ```
 
-### 4b. Disable Battery Optimization for Termux
-
-Go to **Android Settings > Apps > Termux > Battery** and set it to
-**Unrestricted**. Do the same for **Termux:Boot**.
-
-#### Stock Android / Pixel
-
-Settings > Battery > Battery Optimization > Termux > **Don't optimize**
-
-#### Samsung (OneUI)
-
-1. Settings > Apps > Termux > Battery > **Unrestricted**
-2. Settings > Device Care > Battery > Background usage limits — add Termux
-   and Termux:Boot to **"Never sleeping apps"**
-3. Settings > Device Care > Battery > More battery settings:
-   - Turn **OFF** "Adaptive battery"
-   - Turn **OFF** "Put unused apps to sleep"
-
-#### Xiaomi / Redmi / POCO (MIUI)
-
-1. Settings > Apps > Manage apps > Termux > Battery saver > **No restrictions**
-2. Settings > Apps > Manage apps > Termux > **Autostart: ON**
-3. Security app > Battery > App battery saver > Termux > **No restrictions**
-
-#### Huawei (EMUI)
-
-1. Settings > Apps > Apps > Termux > Battery > **Enable: Allow background**
-2. Settings > Battery > App launch > Termux > **Manage manually** > enable all 3 toggles
-
-#### Motorola / Lenovo
-
-Settings > Battery > Adaptive Battery > **OFF** (or exclude Termux)
-
-### 4c. Lock Termux in Recents
-
-Open the Android recent apps view, find Termux, and **lock it** (tap the lock
-icon or long press > Lock). This prevents Android from killing it when clearing
-recent apps.
-
-### 4d. Disable Doze for Termux (via ADB, recommended)
-
-If you have ADB access from a computer:
+You can also test from your local machine:
 
 ```bash
-adb shell dumpsys deviceidle whitelist +com.termux
-adb shell dumpsys deviceidle whitelist +com.termux.boot
+curl http://YOUR_DROPLET_IP/webhook?hub.mode=subscribe\&hub.verify_token=YOUR_VERIFY_TOKEN\&hub.challenge=test123
 ```
 
-This exempts Termux from Android's Doze mode entirely.
-
-### 4e. Disable phantom process killing (Android 12+)
-
-Android 12+ limits background processes to 32. If you hit this limit, Android
-kills Termux silently. Disable it via ADB:
+### Verify static pages
 
 ```bash
-adb shell "settings put global settings_enable_monitor_phantom_procs false"
-# Or on some devices:
-adb shell "/system/bin/device_config set_sync_disabled_for_tests persistent"
-adb shell "/system/bin/device_config put activity_manager max_phantom_processes 2147483647"
+curl -s -o /dev/null -w "%{http_code}" http://YOUR_DROPLET_IP/menu
+# Should respond: 200
+
+curl -s -o /dev/null -w "%{http_code}" http://YOUR_DROPLET_IP/privacidad
+# Should respond: 200
 ```
-
-### 4f. Notifications channel
-
-Make sure Termux notifications are set to **high priority** in Android settings.
-If Android hides the wakelock notification, it may kill the process.
 
 ---
 
-## 5. Run with Process Manager
+## 8. Set up GitHub Actions CI/CD
 
-Use `tmux` to keep the process running after closing the terminal, plus
-independent restart loops for the bot and the tunnel:
+This enables automatic deployment whenever you push to `main`.
+
+### Generate a deploy SSH key
+
+On your **local machine**:
 
 ```bash
-pkg install tmux
+# Generate a key pair specifically for GitHub Actions
+ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/sesamo_deploy_key -N ""
 ```
 
-Create a start script at `~/start-bot.sh`:
+### Add the public key to the Droplet
 
 ```bash
-#!/data/data/com.termux/files/usr/bin/bash
+# Copy the public key
+cat ~/.ssh/sesamo_deploy_key.pub
 
-# Acquire wake lock
-termux-wake-lock
+# SSH into the Droplet
+ssh deploy@YOUR_DROPLET_IP
 
-cd ~/sesamo/whatsapp-bot
+# Add the key to authorized_keys
+echo "PASTE_THE_PUBLIC_KEY_HERE" >> ~/.ssh/authorized_keys
+```
 
-NGROK_DOMAIN="sesamo-bot.ngrok-free.app"
+### Add secrets to GitHub
 
-tunnel_loop() {
-    while true; do
-        echo "[$(date)] Starting ngrok tunnel..."
-        ngrok http 3000 --url="$NGROK_DOMAIN"
-        EXIT_CODE=$?
-        echo "[$(date)] ngrok exited ($EXIT_CODE). Restarting in 5s..."
-        sleep 5
-    done
+1. Go to your repo on GitHub → **Settings** → **Secrets and variables** → **Actions**
+2. Add these **Repository secrets**:
+
+   | Secret Name       | Value                                           |
+   |-------------------|-------------------------------------------------|
+   | `DROPLET_IP`      | Your Droplet's IP address (e.g., `164.90.XXX.XXX`) |
+   | `DROPLET_USER`    | `deploy`                                        |
+   | `SSH_PRIVATE_KEY`  | Contents of `~/.ssh/sesamo_deploy_key` (the **private** key, NOT .pub) |
+
+   To copy the private key:
+   ```bash
+   cat ~/.ssh/sesamo_deploy_key
+   ```
+   Copy the **entire** output including `-----BEGIN OPENSSH PRIVATE KEY-----` and `-----END OPENSSH PRIVATE KEY-----`.
+
+### Test the CI/CD
+
+Push any change to `main`:
+
+```bash
+git add .
+git commit -m "test: trigger deploy"
+git push origin main
+```
+
+Go to your repo → **Actions** tab to see the deployment running.
+
+---
+
+## 9. Update Meta webhook URL
+
+1. Go to [Meta Developer Console](https://developers.facebook.com/)
+2. Select your app → **WhatsApp** → **Configuration**
+3. Under **Webhook**, click **Edit**
+4. Set the **Callback URL** to:
+   ```
+   http://YOUR_DROPLET_IP/webhook
+   ```
+   (or `https://yourdomain.com/webhook` if you've set up a domain)
+5. Set the **Verify token** to the same value as `WA_VERIFY_TOKEN` in your `.env`
+6. Click **Verify and Save**
+7. Make sure you're subscribed to the `messages` webhook field
+
+---
+
+## 10. Add a domain and HTTPS (optional)
+
+When you have a domain name:
+
+### Point DNS to your Droplet
+
+1. In your domain registrar (Namecheap, Cloudflare, etc.), add an **A record**:
+
+   | Type | Name    | Value             |
+   |------|---------|-------------------|
+   | A    | `bot`   | `YOUR_DROPLET_IP` |
+
+   This creates `bot.yourdomain.com`. You can also use `@` for the root domain.
+
+2. Wait for DNS propagation (usually 5-15 minutes, up to 48 hours)
+
+3. Verify DNS:
+   ```bash
+   dig bot.yourdomain.com +short
+   # Should show your Droplet's IP
+   ```
+
+### Enable HTTPS in Caddy
+
+Edit the `Caddyfile` on the server:
+
+```bash
+ssh deploy@YOUR_DROPLET_IP
+cd ~/sesamo-restaurante
+nano Caddyfile
+```
+
+Change from:
+```
+http://:80 {
+    reverse_proxy bot:3000
 }
+```
 
-# Start ngrok tunnel supervisor in the background
-tunnel_loop &
-TUNNEL_LOOP_PID=$!
-
-cleanup() {
-    kill $TUNNEL_LOOP_PID 2>/dev/null
-    pkill -P $TUNNEL_LOOP_PID 2>/dev/null
-    wait $TUNNEL_LOOP_PID 2>/dev/null
+To:
+```
+bot.yourdomain.com {
+    reverse_proxy bot:3000
 }
-
-trap cleanup EXIT
-
-while true; do
-    echo "[$(date)] Starting Sésamo bot..."
-    pnpm start
-    EXIT_CODE=$?
-
-    if [ $EXIT_CODE -eq 1 ]; then
-        echo "[$(date)] Fatal error (exit 1). Waiting 30s before restart..."
-        sleep 30
-    else
-        echo "[$(date)] Bot exited ($EXIT_CODE). Restarting in 5s..."
-        sleep 5
-    fi
-done
 ```
 
-Make it executable:
+That's it. Restart Caddy:
 
 ```bash
-chmod +x ~/start-bot.sh
+docker compose restart caddy
 ```
 
-Run it inside tmux:
+Caddy will automatically:
+- Obtain a Let's Encrypt TLS certificate
+- Redirect HTTP → HTTPS
+- Renew the certificate before it expires
 
-```bash
-tmux new -s bot
-~/start-bot.sh
+### Update Meta webhook
+
+Update the webhook URL in the Meta Developer Console to:
 ```
-
-Detach from tmux with `Ctrl+B` then `D`. The bot keeps running.
-
-To reattach later:
-
-```bash
-tmux attach -t bot
+https://bot.yourdomain.com/webhook
 ```
 
 ---
 
-## 6. Auto-Start on Boot
+## 11. Common operations
 
-Termux:Boot runs scripts from `~/.termux/boot/` when the phone starts.
-
-```bash
-mkdir -p ~/.termux/boot
-```
-
-Create `~/.termux/boot/start-bot.sh`:
+### View logs
 
 ```bash
-#!/data/data/com.termux/files/usr/bin/bash
+# All services
+docker compose logs -f
 
-termux-wake-lock
+# Bot only
+docker compose logs -f bot
 
-# Wait for network
-sleep 10
-
-# Start the bot + tunnel supervisor script in a tmux session
-tmux new-session -d -s bot "bash ~/start-bot.sh"
+# Last 100 lines
+docker compose logs --tail 100 bot
 ```
 
-Make it executable:
+### Restart the bot
 
 ```bash
-chmod +x ~/.termux/boot/start-bot.sh
+docker compose restart bot
 ```
 
-**Important:** Open the Termux:Boot app at least once after installing so
-Android registers it as a boot receiver.
+### Rebuild and redeploy manually
+
+```bash
+cd ~/sesamo-restaurante
+git pull origin main
+docker compose up --build -d
+```
+
+### Stop everything
+
+```bash
+docker compose down
+```
+
+### Check disk usage
+
+```bash
+docker system df
+```
+
+### Clean up old Docker images
+
+```bash
+docker image prune -f
+```
+
+### Access the SQLite database
+
+```bash
+# Find the volume mount
+docker volume inspect sesamo-restaurante_bot_data
+
+# The database file is inside the volume. To inspect it:
+docker compose exec bot ls -la data/
+```
+
+### SSH into the bot container
+
+```bash
+docker compose exec bot sh
+```
 
 ---
 
-## 7. Watchdog (extra safety)
+## 12. Troubleshooting
 
-Use `cronie` (cron) to check every 5 minutes if both the bot and ngrok are
-still running:
-
-```bash
-sv-enable crond
-crontab -e
-```
-
-Add this line:
-
-```
-*/5 * * * * pgrep -f "pnpm start" > /dev/null && pgrep -f "ngrok http 3000" > /dev/null || { tmux has-session -t bot 2>/dev/null && tmux kill-session -t bot; tmux new-session -d -s bot "bash ~/start-bot.sh"; }
-```
-
-This checks that both processes exist. If either one is missing, it restarts
-the whole tmux session so both come back cleanly.
-
----
-
-## 8. Physical Setup Tips
-
-- **Keep the phone plugged in** at all times. Use a good charger (not a fast
-  charger — slow charging generates less heat and is better for battery
-  longevity).
-- **Turn off the screen.** The wake lock keeps Termux alive even with the
-  screen off. Set screen timeout to the minimum (15 seconds).
-- **Connect via WiFi**, not mobile data. WiFi is more stable and uses less
-  battery.
-- **Disable unnecessary features:** Bluetooth, NFC, location, sync. The phone
-  is a server now, not a phone.
-- **Keep it cool.** Remove the case. Don't put it in direct sunlight. If
-  possible, place it in a ventilated spot.
-- **Set a static IP** on your router for the phone's MAC address, so SSH always
-  works at the same address.
-
----
-
-## 9. Monitoring from Your Computer
-
-SSH in and check:
+### Bot container keeps restarting
 
 ```bash
-# Reattach to the bot session
-tmux attach -t bot
+# Check logs for the error
+docker compose logs bot --tail 50
 
-# Check if bot is running
-pgrep -f "pnpm start"
+# Common causes:
+# - Missing/invalid .env file → check whatsapp-bot/.env exists with correct values
+# - Database corruption → delete the volume: docker compose down -v && docker compose up -d
+```
 
-# Check logs (the bot logs to stdout inside tmux)
-# Just attach to tmux to see them
+### "Connection refused" when testing webhook
 
-# Check uptime
-uptime
+```bash
+# Check if containers are running
+docker compose ps
 
-# Check disk space
+# Check if Caddy is proxying correctly
+docker compose logs caddy
+
+# Test directly against the bot (bypassing Caddy)
+docker compose exec bot wget -qO- http://localhost:3000/webhook?hub.mode=subscribe\&hub.verify_token=YOUR_TOKEN\&hub.challenge=test
+```
+
+### Meta webhook verification fails
+
+1. Make sure the Droplet firewall allows port 80 (and 443 if using HTTPS)
+2. Make sure the `WA_VERIFY_TOKEN` in `.env` matches what you entered in Meta
+3. Test the endpoint manually:
+   ```bash
+   curl "http://YOUR_DROPLET_IP/webhook?hub.mode=subscribe&hub.verify_token=YOUR_TOKEN&hub.challenge=test123"
+   ```
+   Should respond with `test123`
+
+### HTTPS not working after adding domain
+
+```bash
+# Check Caddy logs for certificate errors
+docker compose logs caddy
+
+# Common causes:
+# - DNS not propagated yet (wait and retry)
+# - Firewall blocking port 443
+# - Domain not pointing to the Droplet IP
+```
+
+### Out of disk space
+
+```bash
+# Check disk usage
 df -h
 
-# Check memory
-free -m
+# Clean Docker
+docker system prune -a
+
+# Check the SQLite database size
+docker compose exec bot ls -lh data/sesamo.db
 ```
 
----
+### Need to update environment variables
 
-## Summary Checklist
+```bash
+cd ~/sesamo-restaurante
+nano whatsapp-bot/.env
 
-- [ ] Termux + Termux:Boot installed from F-Droid
-- [ ] Node.js, pnpm, git, tmux, cronie installed in Termux
-- [ ] Bot cloned, dependencies installed, `.env` configured with Cloud API credentials
-- [ ] ngrok set up with a static dev domain pointing to `localhost:3000`
-- [ ] Meta webhook configured (callback URL + verify token + messages subscription)
-- [ ] `termux-wake-lock` acquired
-- [ ] Termux excluded from battery optimization
-- [ ] Termux locked in recents
-- [ ] `~/start-bot.sh` created with restart loop + tunnel
-- [ ] Bot running inside tmux session
-- [ ] `~/.termux/boot/start-bot.sh` for auto-start on reboot
-- [ ] Cron watchdog running every 5 minutes
-- [ ] Phone plugged in, screen off, WiFi connected
+# Restart the bot to pick up changes
+docker compose restart bot
+```
