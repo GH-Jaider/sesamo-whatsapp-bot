@@ -6,13 +6,17 @@ import { handleMessage } from '@/handlers/index';
 export const app = new Hono();
 
 // ---------------------------------------------------------------------------
-// Static pages — menu & privacy policy (served through the public tunnel)
+// Static pages — menu & privacy policy
+// In dev (ts-node from whatsapp-bot/): static files are at ../
+// In production (Docker):             static files are at ./static/
 // ---------------------------------------------------------------------------
 
-app.use('/menu', serveStatic({ root: '..', path: 'sesamo-menu.html' }));
-app.use('/privacidad', serveStatic({ root: '..', path: 'politica-privacidad.html' }));
-app.use('/menu.pdf', serveStatic({ root: '..', path: 'sesamo-menu.pdf' }));
-app.use('/privacidad.pdf', serveStatic({ root: '..', path: 'politica-privacidad.pdf' }));
+const staticRoot = process.env.STATIC_ROOT || '..';
+
+app.use('/menu', serveStatic({ root: staticRoot, path: 'sesamo-menu.html' }));
+app.use('/privacidad', serveStatic({ root: staticRoot, path: 'politica-privacidad.html' }));
+app.use('/menu.pdf', serveStatic({ root: staticRoot, path: 'sesamo-menu.pdf' }));
+app.use('/privacidad.pdf', serveStatic({ root: staticRoot, path: 'politica-privacidad.pdf' }));
 
 // ---------------------------------------------------------------------------
 // GET /webhook — Meta hub challenge verification
